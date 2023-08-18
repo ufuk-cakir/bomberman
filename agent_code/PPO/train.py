@@ -60,12 +60,10 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     action = ACTIONS.index(self_action)
     prob_a = self.prob_a
     reward = reward_from_events(self,events)
-    self.logger.info(f'Awarded {reward} for events {", ".join(events)}')
-
-    
-    self.model.put_data((feature_state_old,action,reward,feature_state_new,prob_a,done))
+        
+    self.model.put_data((feature_state_old,action,reward/100.0,feature_state_new,prob_a,done))
     self.model.score += reward
-    
+    self.logger.info(f'Score: {self.model.score}')
     self.logger.debug(f'Encountered game event(s) {", ".join(map(repr, events))} in step {new_game_state["step"]}')
     # Idea: Add your own events to hand out rewards
     #if ...:
@@ -112,6 +110,13 @@ def reward_from_events(self, events: List[str]) -> int:
         e.KILLED_OPPONENT: 5,
         e.KILLED_SELF: -.6,  # idea: the custom event is bad
         e.INVALID_ACTION: -1,
+        e.MOVED_DOWN:0.1,
+        e.MOVED_LEFT:0.1,
+        e.MOVED_RIGHT:0.1,
+        e.MOVED_UP:0.1,
+        e.CRATE_DESTROYED:0.1,
+        e.COIN_FOUND:0.1,
+        e.SURVIVED_ROUND:3,
     }
     reward_sum = 0
     for event in events:

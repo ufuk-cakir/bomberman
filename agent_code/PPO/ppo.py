@@ -11,7 +11,7 @@ gamma         = 0.98
 lmbda         = 0.95
 eps_clip      = 0.1
 
-K_epoch       = 100#3
+K_epoch       = 3
 T_horizon     = 20
 
 
@@ -73,7 +73,7 @@ class PPO(nn.Module):
     def train_net(self):
         s, a, r, s_prime, done_mask, prob_a = self.make_batch()
 
-        for i in tqdm(range(K_epoch)):
+        for i in range(K_epoch):
             
             td_target = r + gamma * self.v(s_prime) * done_mask
             delta = td_target - self.v(s)
