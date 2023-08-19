@@ -13,6 +13,9 @@ import torch.nn.functional as F
 
 
 
+#----------
+import wandb
+
 
 # Events
 PLACEHOLDER_EVENT = "PLACEHOLDER"
@@ -30,6 +33,9 @@ def setup_training(self):
     self.optimizer = optim.Adam(self.policy_net.parameters(), lr=HYPER.LR, amsgrad=True)
     self.memory = Memory(10000)
     self.score = 0
+    wandb.init(project="bomberman-qagent", name="training-run-1")
+    wandb.config.update(HYPER._asdict())
+
 
 
 
@@ -74,24 +80,15 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     self.memory.push(feature_state_old, action, feature_state_new, reward)
     self.score += reward
     
-    self.logger.debug(f'Encountered game event(s) {", ".join(map(repr, events))} in step {new_game_state["step"]}')
+   # self.logger.debug(f'Encountered game event(s) {", ".join(map(repr, events))} in step {new_game_state["step"]}')
     # Idea: Add your own events to hand out rewards
     #if ...:
      #   events.append(PLACEHOLDER_EVENT)
 
     # state_to_features is defined in callbacks.py
     #self.transitions.append(Transition(state_to_features(old_game_state), self_action, state_to_features(new_game_state), reward_from_events(self, events)))
-    self.logger.info(f'Starting to train...')
     optimize_model(self)
     
-    # Soft update of target network
-    # Soft update of the target network's weights
-        # θ′ ← τ θ + (1 −τ )θ′
-    target_net_state_dict = self.target_net.state_dict()
-    policy_net_state_dict = self.policy_net.state_dict()
-    for key in policy_net_state_dict:
-        target_net_state_dict[key] = HYPER.TAU * policy_net_state_dict[key] + (1 - HYPER.TAU) * target_net_state_dict[key]
-    self.target_net.load_state_dict(target_net_state_dict)
     
 
 
@@ -99,9 +96,9 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
 
 
 def optimize_model(self):
-    self.logger.info(f'Optimizing model...')
     if len(self.memory) < HYPER.BATCH_SIZE:
         return
+    #self.logger.info(f'Optimizing model...')
     transitions = self.memory.sample(HYPER.BATCH_SIZE)
     batch = Transition(*zip(*transitions))
 
@@ -136,8 +133,23 @@ def optimize_model(self):
     for param in self.policy_net.parameters():
         param.grad.data.clamp_(-1, 1)
     self.optimizer.step()
-     
-
+    # Soft update of target network
+    # Soft update of the target network's weights
+        # θ′ ← τ θ + (1 −τ )θ′
+    target_net_state_dict = self.target_net.state_dict()
+    policy_net_state_dict = self.policy_net.state_dict()
+    for key in policy_net_state_dict:
+        target_net_state_dict[key] = HYPER.TAU * policy_net_state_dict[key] + (1 - HYPER.TAU) * target_net_state_dict[key]
+    self.target_net.load_state_dict(target_net_state_dict)
+    
+    # Watch the gradients of model parameters
+    wandb.log({"loss": loss.item(), "cumulative_reward": self.score})
+    wandb.watch(self.policy_net)
+    
+    # Compute gradient statistics
+    for name, param in self.policy_net.named_parameters():
+        if param.grad is not None:
+            wandb.log({f"gradient/{name}": param.grad.norm()})
 
 
 
@@ -154,7 +166,6 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
 
     :param self: The same object that is passed to all of your callbacks.
     """
-    self.logger.debug(f'Encountered event(s) {", ".join(map(repr, events))} in final step')
     #self.transitions.append(Transition(state_to_features(last_game_state), last_action, None, reward_from_events(self, events)))
 
     # Store the model
@@ -163,8 +174,21 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         pickle.dump(self.policy_net, file)
     with open("target_net.pt", "wb") as file:
         pickle.dump(self.target_net, file)
+    
+    self.logger.debug(f'Encountered event(s) {", ".join(map(repr, events))} in final step')
     self.logger.info(f'End of round with cumulative reward {self.score}')
     self.logger.info("Saved model.")
+    events_string = ", ".join(events)
+    wandb.log({"final_cumulative_reward": self.score, "encountered_events": events_string}) 
+    self.score = 0
+    self.memory = Memory(10000)
+    # do also save on wandb
+    
+    # Log the events string using Weights and Biases
+    # Idea: Store the q-values corresponding to your last action somewhere.
+    #wandb.run.finish()
+    wandb.save("logs/Qagent.log")
+    
 
 def reward_from_events(self, events: List[str]) -> int:
     """
@@ -174,25 +198,26 @@ def reward_from_events(self, events: List[str]) -> int:
     certain behavior.
     """
     game_rewards = {
-        e.COIN_COLLECTED: 1,
-        e.KILLED_OPPONENT: 5,
-        e.KILLED_SELF: -.6,  # idea: the custom event is bad
-        e.INVALID_ACTION: -10,
-        e.WAITED: -1,
-        e.MOVED_LEFT: 1,
-        e.MOVED_RIGHT: 1,
-        e.MOVED_UP: 1,
-        e.MOVED_DOWN: 1,
-        e.BOMB_DROPPED: 1,
-        e.BOMB_EXPLODED: 1,
-        e.CRATE_DESTROYED: 1,
-        e.COIN_FOUND: 1,
-        e.SURVIVED_ROUND: 10,
-        e.GOT_KILLED: -10,
+        e.COIN_COLLECTED: 200,
+        e.KILLED_OPPONENT: 600,
+        e.KILLED_SELF: -600,  # idea: the custom event is bad
+        e.INVALID_ACTION: -50,
+        e.WAITED: -10,
+        #e.MOVED_LEFT: 1,
+        #e.MOVED_RIGHT: 1,
+       # e.MOVED_UP: 1,
+      #  e.MOVED_DOWN: 1,
+        e.BOMB_DROPPED: 50,
+        e.BOMB_EXPLODED: 15,
+        e.CRATE_DESTROYED: 50,
+        e.COIN_FOUND: 100,
+        e.SURVIVED_ROUND: 500,
+        e.GOT_KILLED: -50,
     }
-    reward_sum = 0
+    reward_sum = 10 # default reward for surviving
     for event in events:
         if event in game_rewards:
             reward_sum += game_rewards[event]
-    self.logger.info(f"Awarded {reward_sum} for events {', '.join(events)}")
+    #self.logger.info(f"Awarded {reward_sum} for events {', '.join(events)}")
+    wandb.log({"reward": reward_sum})
     return reward_sum

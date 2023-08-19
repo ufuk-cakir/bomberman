@@ -29,25 +29,36 @@ Hyperparameters = namedtuple("Hyperparameters", [
     "TAU",
     "LR",
     "N_ACTIONS",
-    "N_FEATURES"
+    "N_FEATURES",
+    "MLP_HIDDEN_SIZE",
+    "MLP_NUM_LAYERS",
 ])
 
 
-SIZE_OF_STATE_VECTOR = 316
+
+
+SIZE_OF_STATE_VECTOR = 360
 
 
 HYPER = Hyperparameters(
     BATCH_SIZE=128,
     GAMMA=0.99,
-    EPS_START=0.9,
-    EPS_END=0.05,
-    EPS_DECAY=1000,
+    EPS_START=1.0,#0.9,
+    EPS_END=0.1,#0.05,
+    EPS_DECAY= 2000, #1000,
     TAU=0.005,
     LR=1e-4,
     N_ACTIONS=len(ACTIONS),
-    N_FEATURES=SIZE_OF_STATE_VECTOR
+    N_FEATURES=SIZE_OF_STATE_VECTOR,
+    MLP_HIDDEN_SIZE=1024,
+    MLP_NUM_LAYERS=2,
 )
 
+import wandb
+
+
+# Events
+PLACEHOLDER_EVENT = "PLACEHOLDER"
 
 
 class Memory(object):
@@ -74,14 +85,21 @@ class Memory(object):
 class QNet(nn.Module):
     def __init__(self, input_size, output_size):
         super().__init__()
-        self.fc1 = nn.Linear(input_size, 128)
-        self.fc2 = nn.Linear(128, 128)
-        self.fc3 = nn.Linear(128, output_size)
+        # Make MLP with HYPER.MLP_NUM_LAYERS layers
+        self.i2h = nn.Linear(input_size, HYPER.MLP_HIDDEN_SIZE)
+         
+        self.hidden = nn.ModuleList()
+        for i in range(HYPER.MLP_NUM_LAYERS - 1):
+            self.hidden.append(nn.Linear(HYPER.MLP_HIDDEN_SIZE, HYPER.MLP_HIDDEN_SIZE))
+
+        self.h2o = nn.Linear(HYPER.MLP_HIDDEN_SIZE, output_size)
+        
         
     def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        return self.fc3(x)
+        x = F.relu(self.i2h(x))
+        for layer in self.hidden:
+            x = F.relu(layer(x))
+        return self.h2o(x)
     
     
     
