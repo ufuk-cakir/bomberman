@@ -41,7 +41,7 @@ SIZE_OF_STATE_VECTOR = 360
 
 
 HYPER = Hyperparameters(
-    BATCH_SIZE=128,
+    BATCH_SIZE=8,
     GAMMA=0.99,
     EPS_START=1.0,#0.9,
     EPS_END=0.1,#0.05,
@@ -81,7 +81,6 @@ class Memory(object):
         return len(self.memory)
 
 
-'''
 
 class QNet(nn.Module):
     def __init__(self, input_size, output_size):
@@ -130,5 +129,6 @@ class QNet(nn.Module):
         return self.h2o(x)
 
 
+'''
     
     

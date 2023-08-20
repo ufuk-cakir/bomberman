@@ -37,6 +37,8 @@ def setup_training(self):
     wandb.config.update(HYPER._asdict())
     self.reward_history = []
     self.loss_history = []
+    self.events_history = []
+    self.avtion_history = []
     
 
 
@@ -59,6 +61,9 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     :param new_game_state: The state the agent is in now.
     :param events: The events that occurred when going from  `old_game_state` to `new_game_state`
     """
+    self.events_history.append(events)
+    self.avtion_history.append(self_action)
+    
     feature_state_old = state_to_features(self,old_game_state)
     feature_state_new = state_to_features(self,new_game_state)
     
@@ -90,17 +95,61 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
 
     # state_to_features is defined in callbacks.py
     #self.transitions.append(Transition(state_to_features(old_game_state), self_action, state_to_features(new_game_state), reward_from_events(self, events)))
-    optimize_model(self)
-    
+    if len(self.memory) > HYPER.BATCH_SIZE:
+        optimize_model(self)
+        
+    else:
+        optimize_model_single(self, (feature_state_old, action, feature_state_new, reward))   
     
 
 
+def optimize_model_single(self, transition):
+    self.logger.info(f'Single Optimization...')
+    state, action, next_state, reward = transition
+
+    # Compute Q(s_t, a) and V(s_{t+1})
+    state_value = self.policy_net(state).gather(1, action)
+    next_state_value = torch.zeros(1, device=self.device)
+    
+    if next_state is not None:
+        next_state_value = self.target_net(next_state).max(1)[0].detach()
+
+    # Compute the expected Q value using bootstrapping
+    expected_state_action_value = (next_state_value * HYPER.GAMMA) + reward
+
+    # Compute Huber loss
+    loss = F.smooth_l1_loss(state_value, expected_state_action_value.unsqueeze(1))
+
+    # Optimize the model
+    self.optimizer.zero_grad()
+    loss.backward()
+    for param in self.policy_net.parameters():
+        param.grad.data.clamp_(-1, 1)
+    self.optimizer.step()
+
+    # Soft update of target network
+    target_net_state_dict = self.target_net.state_dict()
+    policy_net_state_dict = self.policy_net.state_dict()
+    for key in policy_net_state_dict:
+        target_net_state_dict[key] = HYPER.TAU * policy_net_state_dict[key] + (1 - HYPER.TAU) * target_net_state_dict[key]
+    self.target_net.load_state_dict(target_net_state_dict)
+    
+    # Watch the gradients of model parameters
+    wandb.log({"loss": loss.item(), "cumulative_reward": self.score})
+    wandb.watch(self.policy_net)
+    
+    # Compute gradient statistics
+    for name, param in self.policy_net.named_parameters():
+        if param.grad is not None:
+            wandb.log({f"gradient/{name}": param.grad.norm()})
 
 
 
 def optimize_model(self):
     if len(self.memory) < HYPER.BATCH_SIZE:
+        self.logger.info(f'Not enough samples in memory to optimize model.')
         return
+    self.logger.info(f'Optimizing model Fulle...')
     #self.logger.info(f'Optimizing model...')
     transitions = self.memory.sample(HYPER.BATCH_SIZE)
     batch = Transition(*zip(*transitions))
@@ -190,11 +239,13 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     self.logger.debug(f'Encountered event(s) {", ".join(map(repr, events))} in final step')
     self.logger.info(f'End of round with cumulative reward {self.score}')
     self.logger.info("Saved model.")
-    events_string = ", ".join(events)
+
     wandb.log({"final_cumulative_reward": self.score}) 
     self.score = 0
     self.memory = Memory(10000)
-
+    
+    
+    
     # do also save on wandb
     
     # Log the events string using Weights and Biases
@@ -204,6 +255,10 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     wandb.save("policy_net.pt")
     wandb.save("target_net.pt") 
     
+    wandb.log({"events happend": self.events_history})
+    wandb.log({"actions taken by agent": self.avtion_history})
+
+
     # Calculate statistics for logging: TODO stuff like average reward, etc.
     
 
