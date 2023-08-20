@@ -50,7 +50,7 @@ HYPER = Hyperparameters(
     LR=1e-4,
     N_ACTIONS=len(ACTIONS),
     N_FEATURES=SIZE_OF_STATE_VECTOR,
-    MLP_HIDDEN_SIZE=1024,
+    MLP_HIDDEN_SIZE=128,
     MLP_NUM_LAYERS=2,
 )
 
@@ -81,6 +81,7 @@ class Memory(object):
         return len(self.memory)
 
 
+'''
 
 class QNet(nn.Module):
     def __init__(self, input_size, output_size):
@@ -100,6 +101,34 @@ class QNet(nn.Module):
         for layer in self.hidden:
             x = F.relu(layer(x))
         return self.h2o(x)
+'''
     
+    
+class QNet(nn.Module):
+    def __init__(self, input_size, output_size):
+        super().__init__()
+        self.i2h = nn.Linear(input_size, HYPER.MLP_HIDDEN_SIZE)
+         
+        self.hidden = nn.ModuleList()
+        for i in range(HYPER.MLP_NUM_LAYERS - 1):
+            self.hidden.append(nn.Linear(HYPER.MLP_HIDDEN_SIZE, HYPER.MLP_HIDDEN_SIZE))
+            self.hidden.append(nn.BatchNorm1d(HYPER.MLP_HIDDEN_SIZE))
+            self.hidden.append(nn.Dropout(0.2))  # Adding dropout
+
+        self.h2o = nn.Linear(HYPER.MLP_HIDDEN_SIZE, output_size)
+        
+        # Initialize weights using Xavier initialization
+        for layer in [self.i2h] + list(self.hidden) + [self.h2o]:  # Convert ModuleList to list
+            if isinstance(layer, nn.Linear):
+                nn.init.xavier_uniform_(layer.weight)
+        
+    def forward(self, x):
+        x = F.relu(self.i2h(x))
+        for layer in self.hidden:
+            x = layer(x)
+            x = F.leaky_relu(x, negative_slope=0.01)  # Leaky ReLU activation
+        return self.h2o(x)
+
+
     
     

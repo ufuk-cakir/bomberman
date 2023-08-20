@@ -35,6 +35,9 @@ def setup_training(self):
     self.score = 0
     wandb.init(project="bomberman-qagent", name="training-run-1")
     wandb.config.update(HYPER._asdict())
+    self.reward_history = []
+    self.loss_history = []
+    
 
 
 
@@ -166,9 +169,18 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
 
     :param self: The same object that is passed to all of your callbacks.
     """
-    #self.transitions.append(Transition(state_to_features(last_game_state), last_action, None, reward_from_events(self, events)))
-
-    # Store the model
+    # Add final events to game events TODO: REWRITE
+    state = state_to_features(self,last_game_state)
+    state = torch.tensor(state, device=self.device, dtype=torch.float).unsqueeze(0)
+    final_state = None
+    action = ACTIONS.index(last_action)
+    action = torch.tensor([[action]], device=self.device, dtype=torch.long)
+    reward = reward_from_events(self,events)
+    reward = torch.tensor([reward], device=self.device)
+    self.memory.push(state, action, final_state, reward)
+    
+    # do final optimization step
+    optimize_model(self)
     
     with open("policy_net.pt", "wb") as file:
         pickle.dump(self.policy_net, file)
@@ -179,15 +191,20 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     self.logger.info(f'End of round with cumulative reward {self.score}')
     self.logger.info("Saved model.")
     events_string = ", ".join(events)
-    wandb.log({"final_cumulative_reward": self.score, "encountered_events": events_string}) 
+    wandb.log({"final_cumulative_reward": self.score}) 
     self.score = 0
     self.memory = Memory(10000)
+
     # do also save on wandb
     
     # Log the events string using Weights and Biases
     # Idea: Store the q-values corresponding to your last action somewhere.
     #wandb.run.finish()
     wandb.save("logs/Qagent.log")
+    wandb.save("policy_net.pt")
+    wandb.save("target_net.pt") 
+    
+    # Calculate statistics for logging: TODO stuff like average reward, etc.
     
 
 def reward_from_events(self, events: List[str]) -> int:
@@ -203,10 +220,10 @@ def reward_from_events(self, events: List[str]) -> int:
         e.KILLED_SELF: -600,  # idea: the custom event is bad
         e.INVALID_ACTION: -50,
         e.WAITED: -10,
-        #e.MOVED_LEFT: 1,
-        #e.MOVED_RIGHT: 1,
-       # e.MOVED_UP: 1,
-      #  e.MOVED_DOWN: 1,
+        e.MOVED_LEFT: 1,
+        e.MOVED_RIGHT: 1,
+        e.MOVED_UP: 1,
+        e.MOVED_DOWN: 1,
         e.BOMB_DROPPED: 50,
         e.BOMB_EXPLODED: 15,
         e.CRATE_DESTROYED: 50,
@@ -214,10 +231,29 @@ def reward_from_events(self, events: List[str]) -> int:
         e.SURVIVED_ROUND: 500,
         e.GOT_KILLED: -50,
     }
-    reward_sum = 10 # default reward for surviving
+    
+    game_rewards = {
+    e.COIN_COLLECTED: 2.0,
+    e.KILLED_OPPONENT: 6.0,
+    e.KILLED_SELF: -2.0,
+    e.INVALID_ACTION: -0.5,
+    e.WAITED: -0.1,
+    e.MOVED_LEFT: 0.1,
+    e.MOVED_RIGHT: 0.1,
+    e.MOVED_UP: 0.1,
+    e.MOVED_DOWN: 0.1,
+    e.BOMB_DROPPED: 0.5,
+    e.BOMB_EXPLODED: 0.15,
+    e.CRATE_DESTROYED: 0.5,
+    e.COIN_FOUND: 1.0,
+    e.SURVIVED_ROUND: 5.0,
+    e.GOT_KILLED: -2.0,
+}
+    reward_sum = 0 # default reward for surviving
     for event in events:
         if event in game_rewards:
             reward_sum += game_rewards[event]
     #self.logger.info(f"Awarded {reward_sum} for events {', '.join(events)}")
     wandb.log({"reward": reward_sum})
     return reward_sum
+

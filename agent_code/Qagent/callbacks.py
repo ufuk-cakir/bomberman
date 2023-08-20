@@ -144,6 +144,7 @@ def act(self, game_state: dict) -> str:
     :return: The action to take as a string.
     """
     # Get State feature vector
+    self.policy_net.eval()
     s = state_to_features(self,game_state)
     s = torch.tensor(s, device=self.device, dtype=torch.float).unsqueeze(0)
      
