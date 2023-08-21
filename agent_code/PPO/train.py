@@ -25,8 +25,43 @@ RECORD_ENEMY_TRANSITIONS = 1.0  # record enemy transitions with probability ...
 # Events
 PLACEHOLDER_EVENT = "PLACEHOLDER"
 
-WANDB_FLAG = 1
+WANDB = 1
 
+
+
+class Storage:
+    def __init__(self, nsteps = HYPER.NUM_STEPS):
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.obs = torch.zeros(nsteps, HYPER.N_FEATURES).to(device)
+        self.actions = torch.zeros(nsteps).to(device)
+        self.rewards = torch.zeros(nsteps, 1).to(device)
+        self.dones = torch.zeros(nsteps, 1).to(device)
+        self.logprobs = torch.zeros(nsteps, 1).to(device)
+        self.values = torch.zeros(nsteps, 1).to(device)
+        self.entropies = torch.zeros(nsteps, 1).to(device)
+        self.nsteps = nsteps
+        self.step = 0
+
+        
+    def add(self, obs, action, reward, done, logprob, value, entropy):
+        self.obs[self.step].copy_(obs)
+        self.actions[self.step].copy_(action)
+        self.rewards[self.step].copy_(reward)
+        self.dones[self.step].copy_(done)
+        self.logprobs[self.step].copy_(logprob)
+        self.values[self.step].copy_(value)
+        self.entropies[self.step].copy_(entropy)
+        self.step = (self.step + 1) % self.nsteps
+
+        
+    def reset(self):
+        self.step = 0
+        
+    def get(self):
+        return self.obs, self.actions, self.rewards, self.dones, self.logprobs, self.values, self.entropies
+    
+
+        
 
 
 def setup_training(self):
@@ -40,7 +75,7 @@ def setup_training(self):
     # Example: Setup an array that will note transition tuples
     # (s, a, r, s')
     #self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)
-    self.memory = Memory(10000)
+    self.memory = Storage()
     
     self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
@@ -51,13 +86,22 @@ def setup_training(self):
     self.loss_history = []
     self.events_history = []
     self.logger.info(f'Set up model on device: {self.device}')
-    if HYPER.WANDB:
+    if WANDB:
         wandb.init(project="bomberman", name="bomberman-PPO",
-                   config = HYPER._asdict(),
                     save_code=True,
+
                     ) 
+        # Save Hyperparameters
+        for key, value in HYPER.__dict__.items():
+            if key.startswith("__"):
+                continue
+            wandb.config[key] = value
+        wandb.watch(self.model)
+        # Viszualize the model
+        #wandb.log({"model": wandb.Graph.from_pytorch(self.model, input_tensor)})
     
-    
+    # Storage Setup
+    '''
     self.obs = []
     self.entropies = []
     self.values = []
@@ -65,6 +109,8 @@ def setup_training(self):
     self.rewards = []
     self.dones = []
     self.actions = []
+    self.return_history = []
+    '''
    
     self.loss_history = []
     
@@ -107,11 +153,21 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     action = ACTIONS.index(self_action)
     
     reward = reward_from_events(self, events)
+    
     obs = self._obs
     logprob = self._log_prob
     value = self._value
     entropy = self._entropies
     #
+    obs = torch.tensor(obs, dtype=torch.float).to(self.device)
+    logprob = torch.tensor(logprob, dtype=torch.float).to(self.device)
+    value = torch.tensor(value, dtype=torch.float).to(self.device)
+    entropy = torch.tensor(entropy, dtype=torch.float).to(self.device)
+    done = torch.tensor(done, dtype=torch.float).to(self.device)
+    reward = torch.tensor(reward, dtype=torch.float).to(self.device)
+    self.memory.add(obs=obs, action=action, 
+                    reward=reward, done=done, logprob=logprob, value=value, entropy=entropy)
+    '''
     self.obs.append(obs)
     self.entropies.append(entropy)
     self.values.append(value)
@@ -119,6 +175,7 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     self.rewards.append(reward)
     self.dones.append(done)
     self.actions.append(one_hot(action))
+    '''
 
     #self.memory.push(obs,action,value,reward,logprob,entropy,done)
        
@@ -132,56 +189,64 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     # Store events for logging
     self.events_history.append(events)
 
-    # Bootstrao values
-    next_obs = state_to_features(self, new_game_state)
-    next_obs = torch.tensor(next_obs, dtype=torch.float).to(self.device)
-    with torch.no_grad():
-        next_value = self.model.get_value(next_obs).reshape(1,-1)
-        # Convert tensor TODO: this is slow
-        #self.rewards = torch.tensor(self.rewards, dtype=torch.float).to(self.device)
-        #self.dones = torch.tensor(self.dones, dtype=torch.float).to(self.device)
-        #self.values = torch.tensor(self.values, dtype=torch.float).to(self.device)
-        if HYPER.GAE:
-            self.advantages = [0 for _ in range(len(self.rewards))]
-            lastgaelam = 0
-        # TODO: Check if this is correct, what is Num_steps?
-            steps = len(self.rewards)
-            for t in reversed(range(steps)):
-                #self.logger.info(f'Bootstrapping: t: {t}')
-                if t == steps- 1:
-                    next_non_terminal = 1.0 - done
-                    nextvalues = next_value
-                else:
-                    next_non_terminal = 1.0 - self.dones[t+1]
-                    nextvalues = self.values[t+1]
-                delta = self.rewards[t] + HYPER.gamma * nextvalues * next_non_terminal - self.values[t]
-                self.advantages[t] = lastgaelam = delta + HYPER.gamma * HYPER.lmbda * next_non_terminal * lastgaelam
-            self.returns = self.advantages + self.values
-            wandb.log({"advantage": np.mean(self.advantages)}) if WANDB_FLAG else None
-            wandb.log({"return": np.mean(self.returns)}) if WANDB_FLAG else None
-        else:
-            raise NotImplementedError #TODO: Implement this
+    
+    if self.global_step % HYPER.NUM_STEPS == 0:
+        self.logger.info("Step limit reached, Bootstrapping..")
+        # Bootstrao values
+        next_obs = state_to_features(self, new_game_state)
+        next_obs = torch.tensor(next_obs, dtype=torch.float).to(self.device)
+        with torch.no_grad():
+            next_value = self.model.get_value(next_obs).reshape(1,-1)
+            # Convert tensor TODO: this is slow
+            #self.rewards = torch.tensor(self.rewards, dtype=torch.float).to(self.device)
+            #self.dones = torch.tensor(self.dones, dtype=torch.float).to(self.device)
+            #self.values = torch.tensor(self.values, dtype=torch.float).to(self.device)
+            if HYPER.GAE:
+                self.advantages = torch.zeros_like(self.memory.rewards)
+                lastgaelam = 0
+            # TODO: Check if this is correct, what is Num_steps?
+            
+                for t in reversed(range(HYPER.NUM_STEPS)):
+                    #self.logger.info(f'Bootstrapping: t: {t}')
+                    if t == HYPER.NUM_STEPS- 1:
+                        next_non_terminal = 1.0 - done
+                        nextvalues = next_value
+                    else:
+                        next_non_terminal = 1.0 - self.memory.dones[t+1]
+                        nextvalues = self.memory.values[t+1]
+                    delta = self.memory.rewards[t] + HYPER.gamma * nextvalues * next_non_terminal - self.memory.values[t]
+                    self.advantages[t] = lastgaelam = delta + HYPER.gamma * HYPER.lmbda * next_non_terminal * lastgaelam
+                self.returns = self.advantages + self.memory.values
+                #print(len(self.returns), len(self.rewards), len(self.advantages), len(self.memory.values))
+                #wandb.log({"advantage": np.mean(self.advantages)}) if WANDB_FLAG else None
+                #wandb.log({"return": np.mean(returns)}) if WANDB_FLAG else None
+            else:
+                raise NotImplementedError #TODO: Implement this
     
 
 
 def optimize(self):
-    self.logger.info(f'Optimizing...')  
-    b_obs = torch.tensor(self.obs, dtype=torch.float).to(self.device)
+    self.logger.info(f'End of Game Optimizing...')  
+    
+    '''
+    b_obs = torch.tensor(self.memory.obs, dtype=torch.float).to(self.device)
     b_logprobs = torch.tensor(self.log_probs, dtype=torch.float).to(self.device)
     b_values = torch.tensor(self.values, dtype=torch.float).to(self.device)
+
     b_returns = torch.tensor(self.returns, dtype=torch.float).to(self.device)
+
     b_advantages = torch.tensor(self.advantages, dtype=torch.float).to(self.device)
     b_dones = torch.tensor(self.dones, dtype=torch.float).to(self.device)
     
     b_actions = torch.tensor(self.actions, dtype=torch.long).to(self.device)
     b_actions = b_actions#.reshape(-1,HYPER.N_ACTIONS)
+    '''
+    b_obs, b_actions, b_returns, b_dones, b_logprobs, b_values, b_entropies = self.memory.get()
+    b_advantages = self.advantages # TODO: Maybe push also on memory
     
     #Optimize policy for K epochs:
     inds = np.arange(HYPER.BATCH_SIZE)
     clipfracs = []
-    if len(self.obs) < HYPER.BATCH_SIZE:
-        self.logger.info(f'Not enough samples to train. Skipping...')
-        return
     for i in range(HYPER.K_epoch):
         np.random.shuffle(inds)
         #TODO was ist wenn nicht genügend samples da sind?
@@ -191,7 +256,7 @@ def optimize(self):
        
             # convert one hot to int: TODO CHECK IF THIS IS TRUE
            # b_actions = torch.argmax(b_actions, dim=1)
-            
+          
             _,newlogprob,entropy,newvalue=self.model.get_action_and_value(b_obs[minibatch_ind], b_actions.long()[minibatch_ind])
            
             
@@ -232,18 +297,33 @@ def optimize(self):
             loss.backward()
             nn.utils.clip_grad_norm_(self.model.parameters(), HYPER.MAX_GRAD_NORM)
             self.optimizer.step()
-            wandb.log({"loss": loss.item()})
-            wandb.log({"policy_loss": policy_loss.item()})
-            wandb.log({"value_loss": value_loss.item()})
-            wandb.log({"entropy_loss": entropy_loss.item()})
-            wandb.log({"approx_kl": approx_kl.item()})
-            wandb.log({"value": b_values[minibatch_ind].mean().item()})
-            wandb.log({"value_pred": newvalue.mean().item()})
+            wandb.log({"loss": loss.item()}) if WANDB else None
+            wandb.log({"policy_loss": policy_loss.item()}) if WANDB else None
+            wandb.log({"value_loss": value_loss.item()}) if WANDB else None
+            wandb.log({"entropy_loss": entropy_loss.item()}) if WANDB else None
+            wandb.log({"approx_kl": approx_kl.item()}) if WANDB else None
+            wandb.log({"value": b_values[minibatch_ind].mean().item()}) if WANDB else None
+            wandb.log({"value_pred": newvalue.mean().item()}) if WANDB else None
 
             self.loss_history.append(loss.item())
             #TODO: maybe implement early stopping with KL divergence
             #if approx_kl > 1.5 * HYPER.target_kl:
             #    break
+    # Reset memory
+    self.obs = []
+    self.entropies = []
+    self.values = []
+    self.log_probs = []
+    self.rewards = []
+    self.dones = []
+    self.actions = []
+    self.loss_history = []
+    self.return_history = []
+    self.reward_history = []
+    self.memory.reset()
+    self.logger.info(f'Optimization finished')
+    
+    
 def end_of_round(self, last_game_state: dict, last_action: str, events: List[str]):
     """
     Called at the end of each game or when the agent died to hand out final rewards.
@@ -266,7 +346,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     
     
     # Optimize the model every 5 games
-    if self.n_games_played % 20 == 0:
+    if self.n_games_played % HYPER.NUM_STEPS == 0:
         optimize(self)
         self.logger.info(f'Training finished')
         
@@ -275,16 +355,18 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
             pickle.dump(self.model, file)
         
         # Log important parameters to wandb TODO add more
-        wandb.log({"cumulative_reward": self.model.score})
-        wandb.log({"mean_reward": np.mean(self.reward_history)})
-        wandb.log({"mean_loss": np.mean(self.loss_history)})
+        wandb.log({"cumulative_reward": self.model.score}) if WANDB else None
+        wandb.log({"mean_reward": np.mean(self.reward_history)}) if WANDB else None
+        wandb.log({"mean_loss": np.mean(self.loss_history)}) if WANDB else None
         self.logger.info(f'End of round: Reward_history: {self.reward_history}')
         #self.logger.info(f'End of round: event_history: {self.events_history}')
     # self.logger.info(f'End of round: action_histor: {[ACTIONS[a] for a in self.actions]}')
         # Survived n steps
         self.logger.info(f'End of round: Survived {last_game_state["step"]} steps')
-        wandb.log({"survived steps": last_game_state["step"]})
-
+        wandb.log({"survived steps": last_game_state["step"]}) if WANDB else None
+ 
+ 
+        # TODO WRITE ALL THIS IN MEMROY AND CLEAN ALL AT ONCE
         self.model.score = 0
         self.reward_history = []
         self.loss_history = []
@@ -336,7 +418,8 @@ def reward_from_events(self, events: List[str]) -> int:
     return reward_sum*0.1
    
     """
-   
-    reward_sum = custom_rewards(self, events)
+   # Custom REwards callen TODO
+    reward_sum = custom_rewards(self, events)*0.01
     self.reward_history.append(reward_sum)
+    wandb.log({"reward-given": reward_sum}) if WANDB else None
     return reward_sum

@@ -31,32 +31,31 @@ Transition = namedtuple('Transition',
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 
 
-HYPER = hyperparameters(
-    learning_rate=0.0005,
-    gamma=0.98,
-    lmbda=0.95,
-    eps_clip=0.1,
-    K_epoch=4,
-    T_horizon=20,
-    N_FEATURES=360,
-    N_ACTIONS=len(ACTIONS),
-    HIDDEN_SIZE=64,
-    N_LAYERS=1,
-    ANNEAL_LR=True,
-    GAE=True,
-    WANDB=True,
-    NUM_STEPS=128,
-    BATCH_SIZE=512,
-    MINI_BATCH_SIZE=256,
-    CLIP_COEFF=0.2,
-    NORMALIZE_ADVANTAGE=True,
-    CLIP_VALUE_LOSS=True,
-    ENTROPY_LOSS_COEFF=0.09,#0.01,
-    VALUE_LOSS_COEFF=0.4,
-    MAX_GRAD_NORM=0.5,
-    TARGET_KL=0.01,
-    ACTIVATION_FUNCTION=nn.Tanh(),
-)
+class HYPER: 
+    learning_rate=0.0005
+    gamma=0.98
+    lmbda=0.95
+    eps_clip=0.1
+    K_epoch=4
+    T_horizon=20
+    N_FEATURES=360
+    N_ACTIONS=len(ACTIONS)
+    HIDDEN_SIZE=64
+    N_LAYERS=1
+    ANNEAL_LR=True
+    GAE=True
+    WANDB=True
+    BATCH_SIZE=64
+    MINI_BATCH_SIZE=32
+    CLIP_COEFF=0.2
+    NORMALIZE_ADVANTAGE=True
+    CLIP_VALUE_LOSS=True
+    ENTROPY_LOSS_COEFF=0.09#0.01,
+    VALUE_LOSS_COEFF=0.4
+    MAX_GRAD_NORM=0.5
+    TARGET_KL=0.01
+    ACTIVATION_FUNCTION=nn.Tanh()
+    NUM_STEPS =64
 
 def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
     torch.nn.init.orthogonal_(layer.weight, std)

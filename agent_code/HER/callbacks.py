@@ -14,6 +14,7 @@ import math
 
 from .feature_selection import *
 
+
 def setup(self):
     """
     Setup your code. This is called once when loading each agent.
@@ -33,8 +34,7 @@ def setup(self):
     self.steps_done = 0
     
     
-    
-    
+
     if self.train or not os.path.isfile("policy_net.pt"):
         self.logger.info("Setting up model from scratch.")
         self.model = DQN(HYPER.N_FEATURES, HYPER.N_ACTIONS).to(self.device)
@@ -52,6 +52,7 @@ def setup(self):
 
     self.target_model.eval()
     
+    
 def act(self, game_state: dict) -> str:
     """
     Your agent should parse the input, think, and take a decision.
@@ -61,6 +62,7 @@ def act(self, game_state: dict) -> str:
     :param game_state: The dictionary that describes everything on the board.
     :return: The action to take as a string.
     """
+    
     self.steps_done += 1
     
     # Get State feature vector
@@ -81,9 +83,7 @@ def act(self, game_state: dict) -> str:
         # Choose action with highest Q value
         with torch.no_grad():
             action = self.policy_net(s).max(1)[1].view(1, 1).item()
-            return ACTIONS[action]
-
-
+            return ACTIONS[action] 
     """
 def state_to_features(self,game_state: dict) -> np.array:
     *This is not a required function, but an idea to structure your code.*
