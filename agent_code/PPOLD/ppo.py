@@ -20,20 +20,28 @@ class HYPER:
     EPS_DECAY     = 1000
     N_EPOCH       = 3
     UPDATE_INTERVAL     = 30
-    HIDDEN_SIZE = 128
-    HIDDEN_LAYER = 2
+    HIDDEN_SIZE = 128 # must be power of 2
+    #HIDDEN_LAYER = 6
     ACTIVATION_FUNCTION = nn.Tanh()
-
+    DROP_OUT = 0.6
+    TRANSITION_HISTORY_SIZE = 50 # keep only ... last transitions
+    BATCH_SIZE = 32
 
 class PPO(nn.Module):
     def __init__(self, NUMBER_OF_POSSIBLE_ACTIONS=4, SIZE_OF_STATE_VECTOR=5):
         super(PPO, self).__init__()
         self.data = []
         
-        self.fc1   = nn.Linear(SIZE_OF_STATE_VECTOR,HYPER.HIDDEN_SIZE)
-        self.fc_pi = nn.Linear(HYPER.HIDDEN_SIZE,NUMBER_OF_POSSIBLE_ACTIONS)
-        self.hidden = nn.Linear(HYPER.HIDDEN_SIZE,HYPER.HIDDEN_SIZE)
-        self.fc_v  = nn.Linear(HYPER.HIDDEN_SIZE,1)
+        self.fc1   = nn.Linear(SIZE_OF_STATE_VECTOR,128) # 360, 128
+        self.fc2  = nn.Linear(128, 64) # 128, 64
+        self.fc3  = nn.Linear(64, 32) # 64, 32
+        self.fc4  = nn.Linear(32, 16) # 32, 16
+        self.fc5  = nn.Linear(16, 8) # 16, 8
+        
+        self.fc_pi = nn.Linear(8,NUMBER_OF_POSSIBLE_ACTIONS) # 8, N_action
+        self.fc_v  = nn.Linear(8,1) # 8, 1
+        
+        self.dropout = nn.Dropout(p=HYPER.DROP_OUT) # Prevents overfitting
         self.optimizer = optim.Adam(self.parameters(), lr=HYPER.learning_rate)
         self.loss_history = []
 
@@ -49,17 +57,41 @@ class PPO(nn.Module):
         Returns:
             prob (torch.tensor): Probability distribution over actions
         '''
+        # Gradually decrease number of neurons in hidden layers until reaching 1
         x = HYPER.ACTIVATION_FUNCTION(self.fc1(x))
-        for i in range(HYPER.HIDDEN_LAYER):
-            x = HYPER.ACTIVATION_FUNCTION(self.hidden(x))
+        x = self.dropout(x)
+        x = HYPER.ACTIVATION_FUNCTION(self.fc2(x))
+        x = self.dropout(x)
+        x = HYPER.ACTIVATION_FUNCTION(self.fc3(x))
+        x = self.dropout(x)
+        x = HYPER.ACTIVATION_FUNCTION(self.fc4(x))
+        x = self.dropout(x)
+        x = HYPER.ACTIVATION_FUNCTION(self.fc5(x))
         x = self.fc_pi(x)
         prob = F.softmax(x, dim=softmax_dim)
         return prob
     
     def v(self, x):
+        '''Value Network
+            
+        Approximate value function V(s,θ) with neural network. Takes as input the state and outputs the value of the state.
+
+        Args:
+            x (torch.tensor): State vector
+
+        Returns:
+            v (torch.tensor): Value of the state
+        '''
+        # Gradually decrease number of neurons in hidden layers until reaching 1
         x = HYPER.ACTIVATION_FUNCTION(self.fc1(x))
-        for i in range(HYPER.HIDDEN_LAYER):
-            x = HYPER.ACTIVATION_FUNCTION(self.hidden(x))
+        x = self.dropout(x)
+        x = HYPER.ACTIVATION_FUNCTION(self.fc2(x))
+        x = self.dropout(x)
+        x = HYPER.ACTIVATION_FUNCTION(self.fc3(x))
+        x = self.dropout(x)
+        x = HYPER.ACTIVATION_FUNCTION(self.fc4(x))
+        x = self.dropout(x)
+        x = HYPER.ACTIVATION_FUNCTION(self.fc5(x))  
         v = self.fc_v(x)
         return v
       

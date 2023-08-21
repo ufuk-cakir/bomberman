@@ -34,8 +34,6 @@ def setup(self):
     self.steps_done = 0
     if self.train or not os.path.isfile("my-saved-model.pt"):
         self.logger.info("Setting up model from scratch.")
-        weights = np.random.rand(len(ACTIONS))
-        #self.model = weights / weights.sum()
         self.model = PPO(NUMBER_OF_POSSIBLE_ACTIONS=len(ACTIONS), SIZE_OF_STATE_VECTOR=SIZE_OF_STATE_VECTOR)
     else:
         self.logger.info("Loading model from saved state.")

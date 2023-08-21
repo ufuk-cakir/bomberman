@@ -26,9 +26,7 @@ from .ppo import HYPER
 
 import random
 
-WANDB_FLAG = 0
-
-
+WANDB_FLAG = True
 class Memory:
     def __init__(self):
         self.memory = deque(maxlen=HYPER.TRANSITION_HISTORY_SIZE)
@@ -65,30 +63,7 @@ def setup_training(self):
 
 
 def sample_batches(self,size):
-   
     samples_transitions = self.transitions.sample(size)
-    states= []
-    actions = []
-    rewards = []
-    next_states = []
-    dones = []
-    prob_a = []
-    for transition in samples_transitions:
-        states.append(transition.state)
-        actions.append([transition.action])
-        rewards.append([transition.reward])
-        next_states.append(transition.next_state)
-        dones.append([transition.done])
-        prob_a.append(transition.prob_a)
- 
-    states_batch = torch.tensor(np.array(states), dtype=torch.float)
-    actions_batch = torch.tensor(np.array(actions))
-    rewards_batch = torch.tensor(np.array(rewards))
-    next_state_batch = torch.tensor(np.array(next_states), dtype=torch.float)
-    done_batch = torch.tensor(np.array(dones), dtype=torch.float)
-    prob_a_batch = torch.tensor(np.array(prob_a))
-    
-    return states_batch, actions_batch, rewards_batch, next_state_batch, done_batch, prob_a_batch
     batch = Transition(*zip(*samples_transitions))
     states = np.array(batch.state)
     state_batch = torch.tensor(states, dtype=torch.float)
@@ -110,11 +85,9 @@ def train_net(self):
         else: 
             size = HYPER.BATCH_SIZE
         s,a,r,s_prime,done_mask,prob_a = sample_batches(self, size)
-        
-        
+     
         #s, a, s_prime,r, done_mask, prob_a = self.transitions.sample(size)
         #s, a, r, s_prime, done_mask, prob_a = self.model.make_batch()
-      
         if len(s_prime) ==0:
             self.logger.info(f'No data to train on')
             return
@@ -134,7 +107,7 @@ def train_net(self):
             advantage = torch.tensor(advantage_lst, dtype=torch.float)
 
             pi = self.model.pi(s, softmax_dim=1)
-            pi_a = pi.gather(1,a)
+            pi_a = pi.gather(1,a.view(-1,1))
             ratio = torch.exp(torch.log(pi_a) - torch.log(prob_a))  # a/b == exp(log(a)-log(b))
 
             surr1 = ratio * advantage
@@ -199,14 +172,11 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     """
     calculate_and_store(self, old_game_state, self_action, new_game_state, events)
     done = self.transitions.memory[-1].done
-    train_net(self)
-    '''
     if not done:
         if self.global_step % HYPER.TRANSITION_HISTORY_SIZE == 0:
             self.logger.info(f'Starting to train after end: total steps {self.global_step}')
             train_net(self)
             self.loss_history = []
-    '''
             
 
 def end_of_round(self, last_game_state: dict, last_action: str, events: List[str]):
