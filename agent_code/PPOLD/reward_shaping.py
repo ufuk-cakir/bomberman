@@ -141,7 +141,7 @@ def reward_coin_distance(old_game_state, new_game_state, events):
         events.append(CLOSER_TO_COIN)
 
 
-def punish_long_wait(self, events):
+def punish_long_wait(waited_for, events):
     max_wait = settings.EXPLOSION_TIMER
     if e.WAITED in events:
         self.waited_for += 1

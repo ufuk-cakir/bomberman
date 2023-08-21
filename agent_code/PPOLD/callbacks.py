@@ -17,6 +17,8 @@ ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 
 SIZE_OF_STATE_VECTOR = 360
 
+
+
 def setup(self):
     """
     Setup your code. This is called once when loading each agent.
