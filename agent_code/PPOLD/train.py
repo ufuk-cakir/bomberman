@@ -29,9 +29,6 @@ WANDB_FLAG = 1
 
 import settings
 
-
-
-
 class Values:
     ''' Values to keep track of each game and reset after each game'''
     
@@ -42,12 +39,13 @@ class Values:
         self.global_step = 0
         self.invalid_actions = 0
         self.waited_for = 0
-        
+        self.event_history = []
         self.data = []
         
     def reset(self):
         self.loss_history = []
         self.reward_history = []
+        self.event_history = []
         self.score = 0
         self.global_step = 0
         self.invalid_actions = 0
@@ -77,9 +75,34 @@ class Values:
                "cumulative_reward": self.score,
                "invalid_actions_per_game": self.invalid_actions}) if WANDB_FLAG else None
         self.reset()
-        
+        wandb.save(HYPER.MODEL_NAME) if WANDB_FLAG else None
+        wandb.save("logs/PPOLD.log") if WANDB_FLAG else None
+        self.logger.info(f"END OF GAME: mean_loss: {np.mean(self.loss_history)}, cumulative_reward: {self.score}, invalid_actions_per_game: {self.invalid_actions}, events: {self.event_history}")
     
-  
+    def add_event(self,event):
+        self.event_history.append(event)
+        
+    def check_repetition(self):
+        # Check if agent is repeating actions, i.e going back and forth
+        if self.global_step > 2:
+            # Check specfically for left-right-left-right
+            if "MOVED_LEFT" in self.event_history[-2:] and "MOVED_RIGHT" in self.event_history[-4:-2]:
+                self.add_event("REPEATING_ACTIONS")
+                self.logger.info(f'Agent is repeating actions')
+                return True
+            if "MOVED_RIGHT" in self.event_history[-2:] and "MOVED_LEFT" in self.event_history[-4:-2]:
+                self.add_event("REPEATING_ACTIONS")
+                self.logger.info(f'Agent is repeating actions')
+                return True
+            if "MOVED_UP" in self.event_history[-2:] and "MOVED_DOWN" in self.event_history[-4:-2]:
+                self.add_event("REPEATING_ACTIONS")
+                self.logger.info(f'Agent is repeating actions')
+                return True
+            if "MOVED_DOWN" in self.event_history[-2:] and "MOVED_UP" in self.event_history[-4:-2]:
+                self.add_event("REPEATING_ACTIONS")
+                self.logger.info(f'Agent is repeating actions')
+                return True
+            
         
     def push_data(self, transition):
         # Add reward to reward history
@@ -130,7 +153,7 @@ def setup_training(self):
     """
     # Example: Setup an array that will note transition tuples
     # (s, a, r, s')
-    self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)
+ 
     self.score = 0
     if WANDB_FLAG:
         wandb.init(project="bomberman", name=WANDB_NAME)
@@ -234,6 +257,7 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
         self.values.add_invalid_action()
     # TODO: FIX THIS
     #check_placed_bomb(feature_state_old, new_game_state, events)
+    self.values.add_event(events)
     check_blast_radius(old_game_state,events)
     
     
@@ -249,8 +273,8 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     
     #self.score += reward
     #self.reward_history.append(reward)
-    self.logger.info(f'Score: {self.values.score}')
-    self.logger.debug(f'Encountered game event(s) {", ".join(map(repr, events))} in step {new_game_state["step"]}')
+    #self.logger.info(f'Score: {self.values.score}')
+    #self.logger.debug(f'Encountered game event(s) {", ".join(map(repr, events))} in step {new_game_state["step"]}')
     # Idea: Add your own events to hand out rewards
     #if ...:
      #   events.append(PLACEHOLDER_EVENT)
@@ -262,9 +286,11 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     
     
     if not done:
-        if self.values.global_step % 1== 0:
-            self.logger.info(f'Starting to train after end: total steps {self.values.global_step}')
+        if self.values.global_step % 128== 0:
+            
             train_net(self)
+            self.values.log_wandb_end()
+            
            # self.loss_history = []
             
 
@@ -281,20 +307,25 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
 
     :param self: The same object that is passed to all of your callbacks.
     """
-    self.logger.debug(f'Encountered event(s) {", ".join(map(repr, events))} in final step')
+    #self.logger.debug(f'Encountered event(s) {", ".join(map(repr, events))} in final step')
     #self.transitions.append(Transition(state_to_features(last_game_state), last_action, None, reward_from_events(self, events)))
 
-    self.logger.info(f'Starting to train...')
+    #self.logger.info(f'Starting to train after end...')
     train_net(self)
     
     # Log and reset values
     self.values.log_wandb_end()
     
     # Store the model
-    with open("my-saved-model.pt", "wb") as file:
+    with open(HYPER.MODEL_NAME, "wb") as file:
         pickle.dump(self.model, file)
 
 
+
+REPEATING_ACTIONS = "REPEATING_ACTIONS"
+
+
+        
 
 def reward_from_events(self, events: List[str]) -> int:
     """
@@ -328,42 +359,73 @@ def reward_from_events(self, events: List[str]) -> int:
         CLOSER_TO_COIN: 40,
         IN_BLAST_RADIUS: -7,
         # e.BOMB_DROPPED: -1,
-        FURTHER_FROM_COIN: -60,
+        FURTHER_FROM_COIN: -100,
         CLOSER_TO_COIN:70,
+        
     }
     game_rewards = {
-        e.COIN_COLLECTED: 1,
+        e.COIN_COLLECTED: 20,
         e.KILLED_OPPONENT: 5,
-        e.KILLED_SELF: -.6,  # idea: the custom event is bad
-        e.INVALID_ACTION: -1,
-        e.MOVED_DOWN:0.1,
-        e.MOVED_LEFT:0.1,
-        e.MOVED_RIGHT:0.1,
-        e.MOVED_UP:0.1,
-        e.CRATE_DESTROYED:0.1,
+        e.KILLED_SELF: -8,  
+        e.INVALID_ACTION: -15,
+        #e.MOVED_DOWN:0.5,
+        #e.MOVED_LEFT:0.5,
+        #e.MOVED_RIGHT:0.5,
+        #e.MOVED_UP:0.5,
+        e.CRATE_DESTROYED:1,
         e.COIN_FOUND:0.1,
         e.SURVIVED_ROUND:3,
     }
-    # TODO Reward for going in coin direction
+    custom = {
+        WAITED_TOO_LONG:-5,
+        IN_BLAST_RADIUS:-1,
+        FURTHER_FROM_COIN:-10,
+        CLOSER_TO_COIN: 7,
+        ESCAPABLE_BOMB: 1,
+        REPEATING_ACTIONS:-25,
+    }
     # TODO add punishment for visiting same fields
     
     reward_sum = 0
     for event in events:
         if event in game_rewards:
             reward_sum += game_rewards[event]
-    self.logger.info(f"Awarded {reward_sum} for events {', '.join(events)}")
+        if event in custom:
+            reward_sum += custom[event]
+        #    self.logger.info(f'Awarded {custom[event]} for event {event}')
+    #self.logger.info(f"Awarded {reward_sum} for events {', '.join(events)}")
     # Useless bomb
-    '''
+    if self.values.check_repetition():
+        reward_sum += custom[REPEATING_ACTIONS]
     if e.BOMB_DROPPED in events and BOMB_DESTROYS_CRATE not in events:
-        reward_sum -= 600
+        reward_sum -= 10
+        #self.logger.info(f'Useless bomb: -10')
         # print("useless")
+    if e.BOMB_DROPPED in events and BOMB_DESTROYS_CRATE in events:
+        reward_sum += 15
+        #self.logger.info(f'Useful bomb, bomb destroyed crate: +15')
     # Inescapable bomb
     if e.BOMB_DROPPED in events and ESCAPABLE_BOMB not in events:
         reward_sum += game_rewards[e.KILLED_SELF]
+        #self.logger.info(f'Inescapable bomb: {game_rewards[e.KILLED_SELF]}')
     # Reward for going out of blast radius
     # TODO: check if this works    
     
-    '''
+    
+    
+    #--------------_FOR COIN COLLECTOR AGENT
+    coin_rewards = {
+        e.COIN_COLLECTED: 20,
+        FURTHER_FROM_COIN:-10,
+        CLOSER_TO_COIN: 7,
+        e.BOMB_DROPPED:-20,
+        e.INVALID_ACTION:-10,
+    }
+    reward_sum = 0
+    for event in events:
+        if event in coin_rewards:
+            reward_sum += coin_rewards[event]
+        
     #self.reward_history.append(reward_sum)
     return reward_sum
     #reward_sum =  custom_rewards(self,events)

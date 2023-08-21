@@ -17,6 +17,7 @@ ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 
 SIZE_OF_STATE_VECTOR = 360
 
+CONTINUE_TRAINING = 0
 
 
 def setup(self):
@@ -34,14 +35,20 @@ def setup(self):
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
     self.steps_done = 0
-    if self.train or not os.path.isfile("my-saved-model.pt"):
-        self.logger.info("Setting up model from scratch.")
-        weights = np.random.rand(len(ACTIONS))
-        #self.model = weights / weights.sum()
-        self.model = PPO(NUMBER_OF_POSSIBLE_ACTIONS=len(ACTIONS), SIZE_OF_STATE_VECTOR=SIZE_OF_STATE_VECTOR)
+    if self.train or not os.path.isfile(HYPER.MODEL_NAME):
+        if CONTINUE_TRAINING:
+            self.logger.info("Loading model from saved state.")
+            with open(HYPER.MODEL_NAME, "rb") as file:
+                self.model = pickle.load(file)
+            return
+        else:
+            self.logger.info("Setting up model from scratch.")
+            weights = np.random.rand(len(ACTIONS))
+            #self.model = weights / weights.sum()
+            self.model = PPO(NUMBER_OF_POSSIBLE_ACTIONS=len(ACTIONS), SIZE_OF_STATE_VECTOR=SIZE_OF_STATE_VECTOR)
     else:
         self.logger.info("Loading model from saved state.")
-        with open("my-saved-model.pt", "rb") as file:
+        with open(HYPER.MODEL_NAME, "rb") as file:
             self.model = pickle.load(file)
 
 
