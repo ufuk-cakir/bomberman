@@ -1,9 +1,13 @@
+
+
+from .feature_selection import * # includes state_to_features
 import os
 import pickle
 import random
 
-from .ppo import PPO
+from .ppo import PPO,HYPER
 import torch
+import math
 
 import numpy as np
 
@@ -11,7 +15,7 @@ import numpy as np
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 
 
-SIZE_OF_STATE_VECTOR = 316
+SIZE_OF_STATE_VECTOR = 360
 
 def setup(self):
     """
@@ -27,6 +31,7 @@ def setup(self):
 
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
+    self.steps_done = 0
     if self.train or not os.path.isfile("my-saved-model.pt"):
         self.logger.info("Setting up model from scratch.")
         weights = np.random.rand(len(ACTIONS))
@@ -50,7 +55,18 @@ def act(self, game_state: dict) -> str:
     # todo Exploration vs exploitation
     # Get State feature vector
     s = state_to_features(self,game_state)
+   
+    # Epsilon greedy policy TODO implement annealing, improve
+    sample = random.random() # sample from uniform distribution
+    eps_threshold = HYPER.EPS_END + (HYPER.EPS_START - HYPER.EPS_END) * \
+        math.exp(-1. * self.steps_done / HYPER.EPS_DECAY)
+    self.steps_done += 1
     
+    # If sample is smaller than epsilon, choose random action
+    if sample < eps_threshold:
+        self.logger.debug("Choosing action purely at random.")
+        self.prob_a = 1/len(ACTIONS)
+        return np.random.choice(ACTIONS)
     # Get action probabilities
     prob_distr = self.model.pi(torch.from_numpy(s).float())
     categorical = torch.distributions.Categorical(prob_distr)
@@ -72,8 +88,9 @@ def act(self, game_state: dict) -> str:
     return np.random.choice(ACTIONS, p=self.model)
 
 
+# is imported from feature_selection.py
+"""
 def state_to_features(self,game_state: dict) -> np.array:
-    """
     *This is not a required function, but an idea to structure your code.*
 
     Converts the game state to the input of your model, i.e.
@@ -86,50 +103,5 @@ def state_to_features(self,game_state: dict) -> np.array:
     :param game_state:  A dictionary describing the current game board.
     :return: np.array
     """
-    # This is the dict before the game begins and after it ends
-    if game_state is None:
-        return None
-
-    # Get self information from game state
-    _, self_score,self_bomb_possible, (self_x, self_y) = game_state['self']
-    # Get board information from game state
-    board = np.array(game_state['field'])
-    coins = np.array(game_state['coins'])
-    
-    # There can be a maximum of 4 coins at the same, time so we need to pad the array
-
-    if len(coins)==0:
-        coins = np.array([[-1,-1],[-1,-1],[-1,-1],[-1,-1]])
-    if len(coins) < 4 and len(coins)>0:
-        for i in range(4 - len(coins)):
-            coins = np.append(coins, [[-1, -1]], axis=0)
-    # Get bomb information from game state
-    bombs = game_state['bombs']
-    bomb_xy = np.array([xy for (xy,t) in bombs])
-
-    # There can be a maximum of 4 bombs at the same, time so we need to pad the array
-    if len(bomb_xy)==0:
-        bomb_xy = np.array([[-1,-1],[-1,-1],[-1,-1],[-1,-1]])
-    if len(bomb_xy) < 4 and len(bomb_xy)>0:
-        for i in range(4 - len(bomb_xy)):
-            bomb_xy = np.append(bomb_xy, [[-1, -1]], axis=0)
-
-    others_xy = np.array([[-1,-1],[-1,-1],[-1,-1],[-1,-1]])
-    others = np.array([xy for (name, score, bomb_possible, xy) in game_state['others']])
-    others_xy[:len(others)] = others
-        # Create a list of arrays
-    channel_arrays = [
-        board.flatten(),
-        np.array([self_x]),
-        np.array([self_y]),
-        coins.flatten(),
-        bomb_xy.flatten(),
-        others_xy.flatten(),
-        np.array([self_bomb_possible])
-    ]
-
-    # Concatenate the arrays along axis 1 to create the channels array
-    channels = np.concatenate(channel_arrays, axis=0)
-    # Return flattened feature tensor to feed into the model
-    return channels# For example, you could construct several channels of equal shape, ...
+    # This is the dict before the game begins and after it end
    
