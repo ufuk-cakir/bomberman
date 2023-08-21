@@ -62,6 +62,10 @@ def act(self, game_state: dict) -> str:
         math.exp(-1. * self.steps_done / HYPER.EPS_DECAY)
     self.steps_done += 1
     
+    if not self.train:
+        # Reduce exploration when not training
+        eps_threshold = 0.00
+        
     # If sample is smaller than epsilon, choose random action
     if sample < eps_threshold:
         self.logger.debug("Choosing action purely at random.")

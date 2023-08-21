@@ -121,7 +121,7 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     #self.transitions.append(Transition(state_to_features(old_game_state), self_action, state_to_features(new_game_state), reward_from_events(self, events)))
     wandb.log({"reward": reward})
     if not done:
-        if self.global_step % HYPER.UPDATE_INTERVAL == 0:
+        if self.global_step % 1== 0:
             self.logger.info(f'Starting to train after end: total steps {self.global_step}')
             train_net(self)
             self.loss_history = []
@@ -168,7 +168,29 @@ def reward_from_events(self, events: List[str]) -> int:
     Here you can modify the rewards your agent get so as to en/discourage
     certain behavior.
     """
-
-    reward_sum =  custom_rewards(self,events)
+    # Count number of invalid actions
+    invalid_actions = events.count(e.INVALID_ACTION)
+    wandb.log({"invalid_actions": invalid_actions})
+    game_rewards = {
+            e.COIN_COLLECTED: 1,
+            e.KILLED_OPPONENT: 5,
+            e.KILLED_SELF: -.6,  # idea: the custom event is bad
+            e.INVALID_ACTION: -1,
+            e.MOVED_DOWN:0.1,
+            e.MOVED_LEFT:0.1,
+            e.MOVED_RIGHT:0.1,
+            e.MOVED_UP:0.1,
+            e.CRATE_DESTROYED:0.1,
+            e.COIN_FOUND:0.1,
+            e.SURVIVED_ROUND:3,
+            e.WAITED:-1,
+        }
+    reward_sum = 0
+    for event in events:
+        if event in game_rewards:
+            reward_sum += game_rewards[event]
+    self.logger.info(f"Awarded {reward_sum} for events {', '.join(events)}")
+    return reward_sum
+    #reward_sum =  custom_rewards(self,events)
     self.logger.info(f"Awarded {reward_sum} for events {', '.join(events)}")
     return reward_sum

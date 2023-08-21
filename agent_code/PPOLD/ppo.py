@@ -20,9 +20,9 @@ class HYPER:
     EPS_DECAY     = 1000
     N_EPOCH       = 3
     UPDATE_INTERVAL     = 30
-    HIDDEN_SIZE = 128
-    HIDDEN_LAYER = 2
-    ACTIVATION_FUNCTION = nn.Tanh()
+    HIDDEN_SIZE = 64
+    HIDDEN_LAYER = 1
+    ACTIVATION_FUNCTION = nn.ReLU()
 
 
 class PPO(nn.Module):
