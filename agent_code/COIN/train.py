@@ -24,8 +24,8 @@ import wandb
 
 from .ppo import HYPER
 
-WANDB_NAME = "ppo-OLD-left-right-agent"
-WANDB_FLAG = 1
+WANDB_NAME = "COIN_COLLECTOR_PPO"
+WANDB_FLAG = 0
 
 import settings
 
@@ -53,6 +53,7 @@ class Values:
         self.waited_for = 0
         self.data = []
         self.invalid_actions = 0
+
         
     def add_loss(self,loss,):
         self.loss_history.append(loss)
@@ -75,7 +76,18 @@ class Values:
         wandb.log({"mean_loss": np.mean(self.loss_history), "mean_reward": np.mean(self.reward_history),
                "cumulative_reward": self.score,
                "invalid_actions_per_game": self.invalid_actions}) if WANDB_FLAG else None
-        self.logger.info(f"END OF GAME: mean_loss: {np.mean(self.loss_history)}, cumulative_reward: {self.score}, invalid_actions_per_game: {self.invalid_actions}, events: {self.event_history}")
+        self.logger.info(f"END OF GAME: mean_loss: {np.mean(self.loss_history)}, cumulative_reward: {self.score}")
+        
+        event_stats = {}
+        for event in self.event_history:
+            if event in event_stats:
+                event_stats[event] += 1
+            else:
+                event_stats[event] = 1
+        wandb.log(event_stats) if WANDB_FLAG else None
+        self.logger.info(f'Event stats: {event_stats}')
+        self.logger.info("--------------------------------------")
+        
         self.reset()
         wandb.save(HYPER.MODEL_NAME) if WANDB_FLAG else None
         wandb.save("logs/PPOLD.log") if WANDB_FLAG else None
@@ -209,8 +221,8 @@ def train_net(self):
         
 
 #----------TODO change this to custom one
-from .reward_shaping import custom_rewards, reward_coin_distance, check_placed_bomb, check_blast_radius, CLOSER_TO_COIN, FURTHER_FROM_COIN, ESCAPABLE_BOMB, BOMB_DESTROYS_CRATE, WAITED_TOO_LONG, IN_BLAST_RADIUS
-
+#from .reward_shaping import custom_rewards, reward_coin_distance, check_placed_bomb, check_blast_radius, CLOSER_TO_COIN, FURTHER_FROM_COIN, ESCAPABLE_BOMB, BOMB_DESTROYS_CRATE, WAITED_TOO_LONG, IN_BLAST_RADIUS
+WAITED_TOO_LONG = "WAITED_TOO_LONG"
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
     """
     Called once per step to allow intermediate rewards based on game events.
@@ -243,7 +255,7 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     prob_a = self.prob_a
     
     # Custom Rewards
-    reward_coin_distance(old_game_state, new_game_state, events)
+    #reward_coin_distance(old_game_state, new_game_state, events)
     #punish_long_wait(self,events)
     max_wait = settings.EXPLOSION_TIMER
     if e.WAITED in events:
@@ -258,10 +270,12 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
         self.values.add_invalid_action()
     # TODO: FIX THIS
     #check_placed_bomb(feature_state_old, new_game_state, events)
+    #check_blast_radius(old_game_state,events)
+    
+    
+    check_custom_events(self,events,action, feature_state_old, feature_state_new)
+    
     self.values.add_event(events)
-    check_blast_radius(old_game_state,events)
-    
-    
     reward = reward_from_events(self,events)
         
     
@@ -317,6 +331,9 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     # Log and reset values
     self.values.log_wandb_end()
     
+    # Reset values defined in setup
+    self.bomb_history = deque([], 5)
+    self.coordinate_history = deque([], 20)
     # Store the model
     with open(HYPER.MODEL_NAME, "wb") as file:
         pickle.dump(self.model, file)
@@ -324,9 +341,60 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
 
 
 REPEATING_ACTIONS = "REPEATING_ACTIONS"
+CLOSER_TO_COIN = "CLOSER_TO_COIN"
+FURTHER_FROM_COIN = "FURTHER_FROM_COIN"
+ESCAPABLE_BOMB = "ESCAPABLE_BOMB"
+BOMB_DESTROYS_CRATE = "BOMB_DESTROYS_CRATE"
+
+TOOK_DIRECTION_TOWARDS_TARGET = "TOOK_DIRECTION_TOWARDS_TARGET"
+TOOK_DIRECTION_AWAY_FROM_TARGET = "TOOK_DIRECTION_AWAY_FROM_TARGET"
+
+IS_IN_LOOP = "IS_IN_LOOP"
+GOT_OUT_OF_LOOP = "GOT_OUT_OF_LOOP"
 
 
         
+def check_custom_events(self, events: List[str],action, features_old, features_new):
+    # Check if agent is closer to coin
+    
+    
+    nearest_coin_distance_old, is_dead_end_old, bomb_threat_old, time_to_explode_old,\
+        can_drop_bomb_old, is_next_to_opponent_old, is_on_bomb_old, crates_nearby_old,\
+            escape_route_available_old, direction_to_target_old_UP, direction_to_target_old_DOWN,\
+                direction_to_target_old_LEFT, direction_to_target_old_RIGHT, is_in_loop_old = features_old
+    
+    nearest_coin_distance_new, is_dead_end_new, bomb_threat_new, time_to_explode_new,\
+        can_drop_bomb_new, is_next_to_opponent_new, is_on_bomb_new, crates_nearby_new,\
+            escape_route_available_new, direction_to_target_new_UP, direction_to_target_new_DOWN,\
+                direction_to_target_new_LEFT, direction_to_target_new_RIGHT, is_in_loop_new = features_new
+                
+                
+    
+    
+    # Feature list: [nearest_coin_distance, is_dead_end, bomb_threat, time_to_explode, can_drop_bomb, 
+    # is_next_to_opponent, is_on_bomb, crates_nearby, escape_route_available, direction_to_target, is_in_loop, ignore_others_timer_normalized]
+    if nearest_coin_distance_new < nearest_coin_distance_old:
+        events.append(CLOSER_TO_COIN)
+    else: 
+        events.append(FURTHER_FROM_COIN)
+        
+    # Check if bomb is escapable
+    if is_on_bomb_new and not is_on_bomb_old:
+        events.append(ESCAPABLE_BOMB)
+    # Check if bomb destroys crate
+ 
+    # Check if Agent took direction towards target: direction_to_target = [UP, DOWN, LEFT, RIGHT]
+    if (action is "MOVED_UP" and direction_to_target_old_UP == 1) or (action is "MOVED_DOWN" and direction_to_target_old_DOWN == 1)\
+        or (action is "MOVED_LEFT" and direction_to_target_old_LEFT == 1) or (action is "MOVED_RIGHT" and direction_to_target_old_RIGHT == 1):
+        events.append(TOOK_DIRECTION_TOWARDS_TARGET)
+    else:
+        events.append(TOOK_DIRECTION_AWAY_FROM_TARGET) # TODO: check if this is correct
+        
+    if is_in_loop_new:
+        events.append(IS_IN_LOOP)
+    if not is_in_loop_new and is_in_loop_old:
+        events.append(GOT_OUT_OF_LOOP)
+    
 
 def reward_from_events(self, events: List[str]) -> int:
     """
@@ -338,7 +406,7 @@ def reward_from_events(self, events: List[str]) -> int:
     # Count number of invalid actions
     if e.INVALID_ACTION in events:
         self.invalid_actions += 1
-
+    """ 
     game_rewards = {
         e.COIN_COLLECTED: 300,
         e.KILLED_OPPONENT: 700,
@@ -414,6 +482,11 @@ def reward_from_events(self, events: List[str]) -> int:
     
     
     
+"""
+
+    
+    
+
     #--------------_FOR COIN COLLECTOR AGENT
     coin_rewards = {
         e.COIN_COLLECTED: 20,
