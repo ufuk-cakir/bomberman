@@ -15,7 +15,7 @@ ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 
 
 
-CONTINUE_TRAINING = 1
+CONTINUE_TRAINING = 0
 
 from collections import deque
 
@@ -161,7 +161,6 @@ def look_for_targets(free_space, start, targets, logger=None):
 
 
 
-
 # TODO implment ignore others timer like in rule_based_agent
 def state_to_features(self,game_state: dict) -> np.array:
     """
@@ -185,24 +184,64 @@ def state_to_features(self,game_state: dict) -> np.array:
     bomb_xys = [xy for (xy, t) in bombs]
     others = [xy for (n, s, b, xy) in game_state['others']]
     coins = game_state['coins']
+    explosion_map = game_state['explosion_map'] 
 
     # 1. Distance to Nearest Coin
     distances_to_coins = [np.abs(x-cx) + np.abs(y-cy) for (cx, cy) in coins]
     nearest_coin_distance = min(distances_to_coins) if coins else -1
 
-    # 2. Is Dead End
+
+    cols = range(1, arena.shape[0] - 1)
+    rows = range(1, arena.shape[0] - 1)
+    dead_ends = [(x, y) for x in cols for y in rows if (arena[x, y] == 0)
+                 and ([arena[x + 1, y], arena[x - 1, y], arena[x, y + 1], arena[x, y - 1]].count(0) == 1)]
+    crates = [(x, y) for x in cols for y in rows if (arena[x, y] == 1)]
+    
+    
+    # 2.Dead End
+    dead_ends = [(x, y) for x in cols for y in rows if (arena[x, y] == 0)
+                 and ([arena[x + 1, y], arena[x - 1, y], arena[x, y + 1], arena[x, y - 1]].count(0) == 1)]
     directions = [(x+dx, y+dy) for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]]
     free_spaces = sum(1 for d in directions if arena[d] == 0)
-    is_dead_end = 1 if free_spaces == 1 else 0
+    
+    is_dead_end = 1 if free_spaces == 1 else 0 #TODO maybe remove this
 
     # 3. Nearby Bomb Threat and 4. Bomb's Time to Explosion
+    '''
     bomb_threat = 0
     time_to_explode = 5  # Assuming max time is 4 for a bomb to explode TODO is this correct?
     for (bx, by), t in bombs:
         if abs(bx - x) < 4 or abs(by - y) < 4:
             bomb_threat = 1
             time_to_explode = min(time_to_explode, t)
+    '''
+    
+    # Check blast range of each bomb
+    blast_coords = []
+    for (bx, by), t in bombs:
+        # Start with the bomb position itself
+        blast_coords.append((bx, by))
+        # For each direction, check for crates
+        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]: # TODO maybe add diagonal directions
+            for i in range(1, 4):
+                # Stop when hitting a wall
+                if arena[bx + i*dx, by + i*dy] == -1:
+                    break
+                # Add free spaces
+                if arena[bx + i*dx, by + i*dy] == 0:
+                    blast_coords.append((bx + i*dx, by + i*dy))
+                # Stop when hitting a crate
+                if arena[bx + i*dx, by + i*dy] == 1:
+                    blast_coords.append((bx + i*dx, by + i*dy))
+                    break
+    
 
+                   
+    # Check if agent is in bomb blast range
+    bomb_threat = 1 if (x, y) in blast_coords else 0
+
+
+   
     # 5. Can Drop Bomb
     can_drop_bomb = 1 if bombs_left > 0 and (x, y) not in bomb_xys else 0
 
@@ -212,15 +251,19 @@ def state_to_features(self,game_state: dict) -> np.array:
     # 7. Is on Bomb
     is_on_bomb = 1 if (x, y) in bomb_xys else 0
 
-    # 8. Number of Crates Nearby
-    crates_nearby = sum(1 for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)] if arena[x+dx, y+dy] == 1)
-
+    # 8. Number of targets
+    #crates_nearby = sum(1 for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)] if arena[x+dx, y+dy] == 1)
+    
     # 9. Escape Route Available (simplified for brevity)
     escape_route_available = 1 if free_spaces > 1 else 0
 
     # 10. Direction to Nearest Target (simplified for brevity)
     # Assuming the function look_for_targets returns a direction as (dx, dy)
-    target_direction = look_for_targets(arena == 0, (x, y), coins + others)
+    targets = coins + dead_ends + crates + others # TODO add others? ADD flag if others are importatnt
+    # Exclude targets that are occupied by a bomb
+    targets = [targets[i] for i in range(len(targets)) if targets[i] not in bomb_xys]
+    target_direction = look_for_targets(arena == 0, (x, y), targets)
+
     direction_to_target = [0, 0, 0, 0]  # [UP, DOWN, LEFT, RIGHT]
     if target_direction:
         if target_direction == (x, y-1): direction_to_target[0] = 1
@@ -228,6 +271,20 @@ def state_to_features(self,game_state: dict) -> np.array:
         elif target_direction == (x-1, y): direction_to_target[2] = 1
         elif target_direction == (x+1, y): direction_to_target[3] = 1
 
+    
+    if (x, y) in dead_ends:
+        should_drop_bomb = 1
+    if (x, y) in dead_ends:
+        should_drop_bomb = 1
+    # Add proposal to drop a bomb if touching an opponent
+    if len(others) > 0:
+        if (min(abs(xy[0] - x) + abs(xy[1] - y) for xy in others)) <= 1:
+            should_drop_bomb = 1
+    # Add proposal to drop a bomb if arrived at target and touching crate
+    if target_direction == (x, y) and ([arena[x + 1, y], arena[x - 1, y], arena[x, y + 1], arena[x, y - 1]].count(1) > 0):
+        should_drop_bomb = 1
+    else:
+        should_drop_bomb = 0 # TODO check if this is correct, maybe other situations to drop bomb
     # 11. Is in a Loop 
     is_in_loop = 1 if self.coordinate_history.count((x, y)) > 2 else 0
     self.coordinate_history.append((x, y))
@@ -235,13 +292,6 @@ def state_to_features(self,game_state: dict) -> np.array:
     # 12. Ignore Others Timer (normalized)
     #ignore_others_timer_normalized = self.ignore_others_timer / 5  # Assuming max timer is 5
 
-    # Combining all features into a single list
-    features = [
-        nearest_coin_distance, is_dead_end, bomb_threat, time_to_explode,
-        can_drop_bomb, is_next_to_opponent, is_on_bomb, crates_nearby,
-        escape_route_available
-    ] + direction_to_target + [is_in_loop] #ignore_others_timer_normalized]
-    
     # Add a local view of the map as a feature, hyperparameter LOCAL_VIEW_SIZE
     
     #local_map = arena[x-HYPER.LOCAL_VIEW_SIZE:x+HYPER.LOCAL_VIEW_SIZE+1,y-HYPER.LOCAL_VIEW_SIZE:y+HYPER.LOCAL_VIEW_SIZE+1]
@@ -251,6 +301,141 @@ def state_to_features(self,game_state: dict) -> np.array:
    # self.logger.debug(f'Raw features: {features}')
     # Normalizing featur
     
+    # Add proposal to run away from any nearby bomb about to blow,
+    # update direction_to_target
+    # first check if there is a bomb nearby
+    #self.logger.debug(f"intermediate direction_to_target: {direction_to_target}")
+    debug_bomb = 0
+    '''
+    if bomb_threat:
+        
     
+        # Reset direction_to_target
+        direction_to_target = [0, 0, 0, 0] # [UP, DOWN, LEFT, RIGHT]
+        for (xb, yb), t in bombs:
+            if (xb == x) and (abs(yb - y) < 4):
+                # Run away
+                if (yb > y): 
+                    self.logger.debug("5") if debug_bomb else None
+                    direction_to_target[0] = 1
+                if (yb < y): 
+                    self.logger.debug("6") if debug_bomb else None
+                    direction_to_target[1] = 1
+                # If possible, turn a corner
+                # Check which direction is free
+                if (arena[x + 1, y] == 0): # check if bomb is to the right
+                    self.logger.debug("7") if debug_bomb else None
+                    direction_to_target[3] = 1 
+                if (arena[x - 1, y] == 0): # check if bomb is to the left
+                    self.logger.debug("8") if debug_bomb else None
+                    direction_to_target[2] = 1 
+                
+        
+            if (yb == y) and (abs(xb - x) < 4):
+               
+                # Run away
+                if (xb > x): 
+                    self.logger.debug("9") if debug_bomb else None
+                    direction_to_target[2] = 1
+                if (xb < x): 
+                    self.logger.debug("10") if debug_bomb else None
+                    direction_to_target[3] = 1
+                # If possible, turn a corner
+                # Check which direction is free
+                if (arena[x, y + 1] == 0) and (yb > y): 
+                    self.logger.debug("11") if debug_bomb else None
+                    direction_to_target[1] = 1
+                if (arena[x, y - 1] == 0) and (yb < y): 
+                    self.logger.debug("12")if debug_bomb else None 
+                    direction_to_target[0] = 1#
+            
+        for (xb, yb), t in bombs:
+           # self.logger.debug(f'Found bomb at {(xb, yb)}')
+            #self.logger.debug(f'Current position: {(x, y)}')
+            if xb == x and yb == y:
+               # self.logger.debug("on bomb search free direction")
+                direction_to_target = [0, 0, 0, 0]
+                # free directions
+                if (arena[x + 1, y] == 0): 
+                #    self.logger.debug("1")
+                    direction_to_target[3] = 1 #go right
+                    break
+                if (arena[x - 1, y] == 0): 
+                  #  self.logger.debug("2")
+                    direction_to_target[2] = 1 #go left
+                    break
+                if (arena[x, y + 1] == 0): # NOTE y goes from top to bottom
+                  #  self.logger.debug("3")
+                    direction_to_target[1] = 1 #go DOWN !!!
+                    break
+                if (arena[x, y - 1] == 0):
+                  #  self.logger.debug("4")
+                    direction_to_target[0] = 1#go down
+    
+    '''
+    
+    
+    
+    blast_in_direction = [0, 0, 0, 0] # [UP, DOWN, LEFT, RIGHT]    
+    if bomb_threat:
+        # Count number of tiles occupied by blast in each direction
+        directions = [(0, -1), (0, 1), (-1, 0), (1, 0)]  # [UP, DOWN, LEFT, RIGHT]
+    
+        # Iterate through each direction
+        for i, (dx, dy) in enumerate(directions):
+            for j in range(1, 4):  # Check up to 3 tiles in each direction
+                # Calculate the coordinates of the tile in the current direction
+                tile_x, tile_y = x + j*dx, y + j*dy
+                
+                # Check if the tile is in the blast range
+                if (tile_x, tile_y) in blast_coords:
+                    blast_in_direction[i] += 1
+                # If the tile is a wall, stop checking further in this direction
+                elif arena[tile_x, tile_y] == -1:
+                    break
+            
+
+        
+
+
+    # Distance to closest bomb
+    distance_to_bombs = [np.abs(x-bx) + np.abs(y-by) for (bx, by) in bomb_xys]
+    nearest_bomb_distance = min(distance_to_bombs) if bomb_xys else -1
+    # time to explode
+    time_to_explode = 5  # Assuming max time is 4 for a bomb to explode TODO is this correct?
+    for (bx, by), t in bombs:
+        if abs(bx - x) < 4 or abs(by - y) < 4:
+           time_to_explode = min(time_to_explode, t)
+    
+    # TODO: maybe add feature if closest opponen can drop bomb
+    
+    # Combining all features into a single list
+    features = [
+        nearest_coin_distance, is_dead_end, bomb_threat, time_to_explode,
+        can_drop_bomb, is_next_to_opponent, is_on_bomb, should_drop_bomb,
+        escape_route_available
+    ] + direction_to_target + [is_in_loop, nearest_bomb_distance] + blast_in_direction #ignore_others_timer_normalized]
+    
+    
+    if 0:
+        self.logger.debug(f"should_drop_bomb: {should_drop_bomb}")
+        self.logger.debug(f"nearest_bomb_distance: {nearest_bomb_distance}")
+        self.logger.debug(f"dead_ends: {is_dead_end}")
+        self.logger.debug(f"bomb_threat: {bomb_threat}")
+        self.logger.debug(f"time_to_explode: {time_to_explode}")
+        self.logger.debug(f"can_drop_bomb: {can_drop_bomb}")
+        self.logger.debug(f"is_next_to_opponent: {is_next_to_opponent}")
+        self.logger.debug(f"is_on_bomb: {is_on_bomb}")
+        self.logger.debug(f"escape_route_available: {escape_route_available}")
+        self.logger.debug(f"is_in_loop: {is_in_loop}")
+        self.logger.debug(f"nearest_coin_distance: {nearest_coin_distance}")
+        self.logger.debug(f"direction_to_target: {direction_to_target}")
+        self.logger.debug(f"nearest_bomb_distance: {nearest_bomb_distance}")
+        self.logger.debug(f"bomb_xys: {bomb_xys}")
+        self.logger.debug(f"blast_in_direction: {blast_in_direction}")
+    #direction_to_target = [0, 0, 0, 0] # [UP, DOWN, LEFT, RIGHT]
+    
+    
+    #self.logger.debug(f"after:{direction_to_target}")
     #self.logger.debug("features: " + str(features))
     return np.array(features)

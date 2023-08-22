@@ -24,7 +24,7 @@ import wandb
 
 from .ppo import HYPER
 
-WANDB_NAME = "COIN_COLLECTOR_PPO"
+WANDB_NAME = "COIN_COLLECTOR_DEEPER"
 WANDB_FLAG = 1
 
 import settings
@@ -227,23 +227,8 @@ def train_net(self):
 #----------TODO change this to custom one
 #from .reward_shaping import custom_rewards, reward_coin_distance, check_placed_bomb, check_blast_radius, CLOSER_TO_COIN, FURTHER_FROM_COIN, ESCAPABLE_BOMB, BOMB_DESTROYS_CRATE, WAITED_TOO_LONG, IN_BLAST_RADIUS
 WAITED_TOO_LONG = "WAITED_TOO_LONG"
-def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
-    """
-    Called once per step to allow intermediate rewards based on game events.
 
-    When this method is called, self.events will contain a list of all game
-    events relevant to your agent that occurred during the previous step. Consult
-    settings.py to see what events are tracked. You can hand out rewards to your
-    agent based on these events and your knowledge of the (new) game state.
-
-    This is *one* of the places where you could update your agent.
-
-    :param self: This object is passed to all callbacks and you can set arbitrary values.
-    :param old_game_state: The state that was passed to the last call of `act`.
-    :param self_action: The action that you took.
-    :param new_game_state: The state the agent is in now.
-    :param events: The events that occurred when going from  `old_game_state` to `new_game_state`
-    """
+def calculate_events_and_reward(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
     self.values.step()
     
     feature_state_old = state_to_features(self,old_game_state)
@@ -255,6 +240,7 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
         done = True
     else:
         done = False
+    self._done = done
     action = ACTIONS.index(self_action)
     prob_a = self.prob_a
     
@@ -287,7 +273,26 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     
     
     self.values.push_data((feature_state_old,action,reward/100.0,feature_state_new,prob_a,done))
+
+def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
+    """
+    Called once per step to allow intermediate rewards based on game events.
+
+    When this method is called, self.events will contain a list of all game
+    events relevant to your agent that occurred during the previous step. Consult
+    settings.py to see what events are tracked. You can hand out rewards to your
+    agent based on these events and your knowledge of the (new) game state.
+
+    This is *one* of the places where you could update your agent.
+
+    :param self: This object is passed to all callbacks and you can set arbitrary values.
+    :param old_game_state: The state that was passed to the last call of `act`.
+    :param self_action: The action that you took.
+    :param new_game_state: The state the agent is in now.
+    :param events: The events that occurred when going from  `old_game_state` to `new_game_state`
+    """
     
+    calculate_events_and_reward(self, old_game_state, self_action, new_game_state, events)
     #self.values.add_reward(reward)
     
     #self.score += reward
@@ -304,7 +309,7 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
    
     
     
-    if not done:
+    if not self._done:
         if self.values.global_step % 128== 0:
             
             train_net(self)
@@ -330,17 +335,22 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     #self.transitions.append(Transition(state_to_features(last_game_state), last_action, None, reward_from_events(self, events)))
 
     #self.logger.info(f'Starting to train after end...')
-    train_net(self)
     
-    # Log and reset values
-    self.values.log_wandb_end()
+    calculate_events_and_reward(self, last_game_state, last_action, last_game_state, events)
     
-    # Reset values defined in setup
-    self.bomb_history = deque([], 5)
-    self.coordinate_history = deque([], 20)
-    # Store the model
-    with open(HYPER.MODEL_NAME, "wb") as file:
-        pickle.dump(self.model, file)
+    # 
+    if self.values.global_step % 128== 0:
+        train_net(self)
+        
+        # Log and reset values
+        self.values.log_wandb_end()
+        
+        # Reset values defined in setup
+        self.bomb_history = deque([], 5)
+        self.coordinate_history = deque([], 20)
+        # Store the model
+        with open(HYPER.MODEL_NAME, "wb") as file:
+            pickle.dump(self.model, file)
 
 
 
@@ -356,21 +366,47 @@ TOOK_DIRECTION_AWAY_FROM_TARGET = "TOOK_DIRECTION_AWAY_FROM_TARGET"
 IS_IN_LOOP = "IS_IN_LOOP"
 GOT_OUT_OF_LOOP = "GOT_OUT_OF_LOOP"
 
+# Wheter dropped bomb when he should have
+DROPPED_BOMB_WHEN_SHOULDNT = "DROPPED_BOMB_WHEN_SHOULDNT"
+# Wheter did not drop bomb when he should have
+DIDNT_DROP_BOMB_WHEN_SHOULD = "DIDNT_DROP_BOMB_WHEN_SHOULD"
 
-        
+# Wheter agent successfully placed bomb
+DROPPED_BOMB_WHEN_SHOULD_BUT_STAYED = "DROPPED_BOMB_WHEN_SHOULD_BUT_STAYED"
+DROPPED_BOMB_WHEN_SHOULD_AND_MOVED = "DROPPED_BOMB_WHEN_SHOULD_AND_MOVED"
+# Wheter agent is in blast radius
+IN_BLAST_RADIUS = "IN_BLAST_RADIUS"
+
+ESCAPED_BOMB = "ESCAPED_BOMB"
+GOING_TOWARDS_BOMB = "GOING_TOWARDS_BOMB"
+GOING_AWAY_FROM_BOMB = "GOING_AWAY_FROM_BOMB"
+
+
+#Check if agent redcues blast count in certain direction
+BLAST_COUNT_UP_DECREASED = "BLAST_COUNT_UP_DECREASED"
+BLAST_COUNT_DOWN_DECREASED = "BLAST_COUNT_DOWN_DECREASED"
+BLAST_COUNT_LEFT_DECREASED = "BLAST_COUNT_LEFT_DECREASED"
+BLAST_COUNT_RIGHT_DECREASED = "BLAST_COUNT_RIGHT_DECREASED"
+
+
+
 def check_custom_events(self, events: List[str],action, features_old, features_new):
     # Check if agent is closer to coin
     
+    action = ACTIONS[action]
+    
     
     nearest_coin_distance_old, is_dead_end_old, bomb_threat_old, time_to_explode_old,\
-        can_drop_bomb_old, is_next_to_opponent_old, is_on_bomb_old, crates_nearby_old,\
+        can_drop_bomb_old, is_next_to_opponent_old, is_on_bomb_old, should_drob_bomb_old,\
             escape_route_available_old, direction_to_target_old_UP, direction_to_target_old_DOWN,\
-                direction_to_target_old_LEFT, direction_to_target_old_RIGHT, is_in_loop_old = features_old
+                direction_to_target_old_LEFT, direction_to_target_old_RIGHT, is_in_loop_old, nearest_bomb_distance_old,\
+                    blast_count_up_old, blast_count_down_old, blast_count_left_old,blast_count_right_old= features_old
     
     nearest_coin_distance_new, is_dead_end_new, bomb_threat_new, time_to_explode_new,\
-        can_drop_bomb_new, is_next_to_opponent_new, is_on_bomb_new, crates_nearby_new,\
+        can_drop_bomb_new, is_next_to_opponent_new, is_on_bomb_new, should_drob_bomb_new,\
             escape_route_available_new, direction_to_target_new_UP, direction_to_target_new_DOWN,\
-                direction_to_target_new_LEFT, direction_to_target_new_RIGHT, is_in_loop_new = features_new
+                direction_to_target_new_LEFT, direction_to_target_new_RIGHT, is_in_loop_new, nearest_bomb_distance_new,\
+                    blast_count_up_new, blast_count_down_new, blast_count_left_new,blast_count_right_new= features_new
                 
                 
     
@@ -386,19 +422,73 @@ def check_custom_events(self, events: List[str],action, features_old, features_n
     if is_on_bomb_new and not is_on_bomb_old:
         events.append(ESCAPABLE_BOMB)
     # Check if bomb destroys crate
- 
+
+
     # Check if Agent took direction towards target: direction_to_target = [UP, DOWN, LEFT, RIGHT]
-    if (action == "MOVED_UP" and direction_to_target_old_UP == 1) or (action == "MOVED_DOWN" and direction_to_target_old_DOWN == 1)\
-        or (action == "MOVED_LEFT" and direction_to_target_old_LEFT == 1) or (action == "MOVED_RIGHT" and direction_to_target_old_RIGHT == 1):
+    if (action == "UP" and direction_to_target_old_UP == 1) or (action == "DOWN" and direction_to_target_old_DOWN == 1)\
+        or (action == "LEFT" and direction_to_target_old_LEFT == 1) or (action == "RIGHT" and direction_to_target_old_RIGHT == 1):
+        TARGET_FLAG = True
         events.append(TOOK_DIRECTION_TOWARDS_TARGET)
     else:
+        TARGET_FLAG = False
         events.append(TOOK_DIRECTION_AWAY_FROM_TARGET) # TODO: check if this is correct
-      
-    # TODO: check if this works, i think its useless atm  
+    
+    # Check if Agent registered bomb threat and escaped
+    if bomb_threat_old and not bomb_threat_new:
+        events.append(ESCAPED_BOMB)
+    # Check if Agent registered bomb threat and went towards it
+    if nearest_bomb_distance_old > nearest_bomb_distance_new:
+        events.append(GOING_TOWARDS_BOMB)
+    # Check if Agent registered bomb threat and went away from it
+    if nearest_bomb_distance_old < nearest_bomb_distance_new:
+        events.append(GOING_AWAY_FROM_BOMB)
+    
+    # TODO: check if this works,
     if is_in_loop_new:
         events.append(IS_IN_LOOP)
     if not is_in_loop_new and is_in_loop_old:
         events.append(GOT_OUT_OF_LOOP)
+     
+     #TODO CHECK THIS
+        
+    # Check if agent dropped bomb when he should have
+    if not should_drob_bomb_old and action=="BOMB":
+        events.append(DROPPED_BOMB_WHEN_SHOULDNT)
+        
+    # Check if agent did not drop bomb when he should have
+    if should_drob_bomb_old and action !="BOMB":
+        events.append(DIDNT_DROP_BOMB_WHEN_SHOULD)
+        
+    # Check if agent successfully placed bomb
+    if should_drob_bomb_old and action=="BOMB":
+        if nearest_bomb_distance_new == 0:
+            events.append(DROPPED_BOMB_WHEN_SHOULD_BUT_STAYED)
+        if nearest_bomb_distance_new > 0:
+            events.append(DROPPED_BOMB_WHEN_SHOULD_AND_MOVED)
+        
+    if bomb_threat_new:
+        events.append(IN_BLAST_RADIUS)
+        
+    # Check if agent reduced blast count in certain direction
+    if blast_count_up_new < blast_count_up_old:
+        # Check if agent took action to reduce blast count
+        if action == "DOWN":
+            events.append(BLAST_COUNT_UP_DECREASED)
+    if blast_count_down_new < blast_count_down_old:
+        # Check if agent took action to reduce blast count
+        if action == "UP":
+            events.append(BLAST_COUNT_DOWN_DECREASED)
+            
+    if blast_count_left_new < blast_count_left_old:
+        # Check if agent took action to reduce blast count
+        if action == "RIGHT":
+            events.append(BLAST_COUNT_LEFT_DECREASED)
+    
+    if blast_count_right_new < blast_count_right_old:
+        # Check if agent took action to reduce blast count
+        if action == "LEFT":
+            events.append(BLAST_COUNT_RIGHT_DECREASED)
+        
     
 
 def reward_from_events(self, events: List[str]) -> int:
@@ -499,7 +589,39 @@ def reward_from_events(self, events: List[str]) -> int:
         CLOSER_TO_COIN: 7,
         e.BOMB_DROPPED:-20,
         e.INVALID_ACTION:-10,
+        
     }
+    coin_rewards_loot_crate = {
+        e.COIN_COLLECTED: 20,
+        #FURTHER_FROM_COIN:-10,
+        #CLOSER_TO_COIN: 7,
+        e.INVALID_ACTION:-10,
+        e.CRATE_DESTROYED: 20,
+        e.COIN_FOUND: 15,
+        WAITED_TOO_LONG:-10,
+        DROPPED_BOMB_WHEN_SHOULDNT:-20,
+        DIDNT_DROP_BOMB_WHEN_SHOULD:-25,
+        DROPPED_BOMB_WHEN_SHOULD_AND_MOVED: 20,
+        DROPPED_BOMB_WHEN_SHOULD_BUT_STAYED: -5,
+        e.KILLED_SELF:-20,
+        ESCAPED_BOMB: 25,
+        GOING_TOWARDS_BOMB:-5,
+        GOING_AWAY_FROM_BOMB: 10,
+        TOOK_DIRECTION_TOWARDS_TARGET: 20,
+        TOOK_DIRECTION_AWAY_FROM_TARGET: -25,
+        IS_IN_LOOP: -10,
+        GOT_OUT_OF_LOOP: 10,
+        IN_BLAST_RADIUS:-50,
+        BLAST_COUNT_UP_DECREASED: 25,
+        BLAST_COUNT_DOWN_DECREASED: 25,
+        BLAST_COUNT_LEFT_DECREASED: 25,
+        BLAST_COUNT_RIGHT_DECREASED: 25,
+    
+        
+    }
+    
+    
+    coin_rewards = coin_rewards_loot_crate
     reward_sum = 0
     for event in events:
         if event in coin_rewards:
