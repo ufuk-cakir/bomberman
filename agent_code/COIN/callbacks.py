@@ -15,7 +15,7 @@ ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 
 
 
-CONTINUE_TRAINING = 0
+CONTINUE_TRAINING = 1
 
 from collections import deque
 
@@ -78,7 +78,7 @@ def act(self, game_state: dict) -> str:
         
     # If sample is smaller than epsilon, choose random action
     if sample < eps_threshold:
-        self.logger.debug("Choosing action purely at random.")
+        #self.logger.debug("Choosing action purely at random.")
         self.prob_a = 1/len(ACTIONS)
         return np.random.choice(ACTIONS)
     # Get action probabilities
@@ -249,4 +249,8 @@ def state_to_features(self,game_state: dict) -> np.array:
     
    # features = features + local_map.tolist()
    # self.logger.debug(f'Raw features: {features}')
+    # Normalizing featur
+    
+    
+    #self.logger.debug("features: " + str(features))
     return np.array(features)

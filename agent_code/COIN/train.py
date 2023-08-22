@@ -1,4 +1,4 @@
-from collections import namedtuple, deque
+from collections import namedtuple, deque, Counter
 import numpy as np
 import pickle
 from typing import List
@@ -25,7 +25,7 @@ import wandb
 from .ppo import HYPER
 
 WANDB_NAME = "COIN_COLLECTOR_PPO"
-WANDB_FLAG = 0
+WANDB_FLAG = 1
 
 import settings
 
@@ -78,19 +78,23 @@ class Values:
                "invalid_actions_per_game": self.invalid_actions}) if WANDB_FLAG else None
         self.logger.info(f"END OF GAME: mean_loss: {np.mean(self.loss_history)}, cumulative_reward: {self.score}")
         
-        event_stats = {}
-        for event in self.event_history:
-            if event in event_stats:
-                event_stats[event] += 1
-            else:
-                event_stats[event] = 1
-        wandb.log(event_stats) if WANDB_FLAG else None
-        self.logger.info(f'Event stats: {event_stats}')
+        
+        self.logger.info(f'Event stats:')
+        # Convert list of tuples to list of strings
+        event_strings = [item for tup in self.event_history for item in tup]
+
+        # Now you can use Counter on this list of strings
+        event_counts = Counter(event_strings)
+        for event, count in event_counts.items():
+            self.logger.info(f'{event}: {count}')
+            if WANDB_FLAG:
+                wandb.log({f"event_{event}": count})
+
         self.logger.info("--------------------------------------")
         
         self.reset()
         wandb.save(HYPER.MODEL_NAME) if WANDB_FLAG else None
-        wandb.save("logs/PPOLD.log") if WANDB_FLAG else None
+        #wandb.save("logs/PPOLD.log") if WANDB_FLAG else None
     
     def add_event(self,event):
         self.event_history.append(event)
@@ -384,12 +388,13 @@ def check_custom_events(self, events: List[str],action, features_old, features_n
     # Check if bomb destroys crate
  
     # Check if Agent took direction towards target: direction_to_target = [UP, DOWN, LEFT, RIGHT]
-    if (action is "MOVED_UP" and direction_to_target_old_UP == 1) or (action is "MOVED_DOWN" and direction_to_target_old_DOWN == 1)\
-        or (action is "MOVED_LEFT" and direction_to_target_old_LEFT == 1) or (action is "MOVED_RIGHT" and direction_to_target_old_RIGHT == 1):
+    if (action == "MOVED_UP" and direction_to_target_old_UP == 1) or (action == "MOVED_DOWN" and direction_to_target_old_DOWN == 1)\
+        or (action == "MOVED_LEFT" and direction_to_target_old_LEFT == 1) or (action == "MOVED_RIGHT" and direction_to_target_old_RIGHT == 1):
         events.append(TOOK_DIRECTION_TOWARDS_TARGET)
     else:
         events.append(TOOK_DIRECTION_AWAY_FROM_TARGET) # TODO: check if this is correct
-        
+      
+    # TODO: check if this works, i think its useless atm  
     if is_in_loop_new:
         events.append(IS_IN_LOOP)
     if not is_in_loop_new and is_in_loop_old:
