@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import events as e
-from .callbacks import state_to_features, ACTIONS
+from .callbacks import state_to_features, ACTIONS, LOG_WANDB, DEBUG_EVENTS, LOG_TO_FILE
 
 # This is only an example!
 Transition = namedtuple('Transition',
@@ -25,11 +25,14 @@ import wandb
 from .ppo import HYPER
 
 WANDB_NAME = "COIN_COLLECTOR_DEEPER"
-WANDB_FLAG = 1
+WANDB_FLAG = LOG_WANDB
+
+
+DEBUG_EVENTS =  DEBUG_EVENTS
 
 import settings
 
-log_to_file = False
+log_to_file = LOG_TO_FILE
 
 
 
@@ -46,6 +49,7 @@ class Values:
         self.event_history = []
         self.data = []
         self.logger = logger
+        self.frames_after_bomb = 0
         
     def reset(self):
         self.loss_history = []
@@ -57,6 +61,7 @@ class Values:
         self.waited_for = 0
         self.data = []
         self.invalid_actions = 0
+        self.frames_after_bomb = 0
 
         
     def add_loss(self,loss,):
@@ -396,25 +401,31 @@ BLAST_COUNT_DOWN_DECREASED = "BLAST_COUNT_DOWN_DECREASED"
 BLAST_COUNT_LEFT_DECREASED = "BLAST_COUNT_LEFT_DECREASED"
 BLAST_COUNT_RIGHT_DECREASED = "BLAST_COUNT_RIGHT_DECREASED"
 
+WENT_INTO_BOMB_RADIUS_AND_DIED = "WENT_INTO_BOMB_RADIUS_AND_DIED"
+DROPPED_BOMB_AND_COLLECTED_COIN_MEANWHILE = "DROPPED_BOMB_AND_COLLECTED_COIN_MEANWHILE"
+
 
 
 def check_custom_events(self, events: List[str],action, features_old, features_new):
     # Check if agent is closer to coin
-    
+    self.values.frames_after_bomb += 1
     action = ACTIONS[action]
-    
+    if action == "BOMB":
+        self.values.frames_after_bomb = 0
     
     nearest_coin_distance_old, is_dead_end_old, bomb_threat_old, time_to_explode_old,\
         can_drop_bomb_old, is_next_to_opponent_old, is_on_bomb_old, should_drob_bomb_old,\
             escape_route_available_old, direction_to_target_old_UP, direction_to_target_old_DOWN,\
                 direction_to_target_old_LEFT, direction_to_target_old_RIGHT, is_in_loop_old, nearest_bomb_distance_old,\
-                    blast_count_up_old, blast_count_down_old, blast_count_left_old,blast_count_right_old= features_old
+                    blast_count_up_old, blast_count_down_old, blast_count_left_old,blast_count_right_old, \
+                        danger_level_up_old, danger_level_down_old, danger_level_left_old, danger_level_right_old = features_old
     
     nearest_coin_distance_new, is_dead_end_new, bomb_threat_new, time_to_explode_new,\
         can_drop_bomb_new, is_next_to_opponent_new, is_on_bomb_new, should_drob_bomb_new,\
             escape_route_available_new, direction_to_target_new_UP, direction_to_target_new_DOWN,\
                 direction_to_target_new_LEFT, direction_to_target_new_RIGHT, is_in_loop_new, nearest_bomb_distance_new,\
-                    blast_count_up_new, blast_count_down_new, blast_count_left_new,blast_count_right_new= features_new
+                    blast_count_up_new, blast_count_down_new, blast_count_left_new,blast_count_right_new, \
+                        danger_level_up_new, danger_level_down_new, danger_level_left_new, danger_level_right_new = features_new
                 
                 
     
@@ -496,6 +507,29 @@ def check_custom_events(self, events: List[str],action, features_old, features_n
         # Check if agent took action to reduce blast count
         if action == "LEFT":
             events.append(BLAST_COUNT_RIGHT_DECREASED)
+            
+            
+    # Check if Agent collected coin while bomb was placed
+    if self.values.frames_after_bomb < 5 and e.COIN_COLLECTED in events:
+        events.append(DROPPED_BOMB_AND_COLLECTED_COIN_MEANWHILE)
+    
+    # Check if agent went into bomb radius and died
+    if e.GOT_KILLED:
+        # Check if agent got killed by walking into bomb radius,
+        # i.e check danger level and if agent took action towards it
+        if danger_level_up_old == 1 and action == "UP":
+            events.append(WENT_INTO_BOMB_RADIUS_AND_DIED)
+        if danger_level_down_old == 1 and action == "DOWN":
+            events.append(WENT_INTO_BOMB_RADIUS_AND_DIED)
+        if danger_level_left_old == 1 and action == "LEFT":
+            events.append(WENT_INTO_BOMB_RADIUS_AND_DIED)
+        if danger_level_right_old == 1 and action == "RIGHT":
+            events.append(WENT_INTO_BOMB_RADIUS_AND_DIED)
+            
+    if DEBUG_EVENTS:
+        self.logger.info(f'Events: {events}')
+            
+    
         
     
 
@@ -617,15 +651,16 @@ def reward_from_events(self, events: List[str]) -> int:
         GOING_AWAY_FROM_BOMB: 10,
         TOOK_DIRECTION_TOWARDS_TARGET: 20,
         TOOK_DIRECTION_AWAY_FROM_TARGET: -25,
-        IS_IN_LOOP: -10,
+        #IS_IN_LOOP: -10,
         GOT_OUT_OF_LOOP: 10,
         IN_BLAST_RADIUS:-50,
         BLAST_COUNT_UP_DECREASED: 25,
         BLAST_COUNT_DOWN_DECREASED: 25,
         BLAST_COUNT_LEFT_DECREASED: 25,
         BLAST_COUNT_RIGHT_DECREASED: 25,
+        WENT_INTO_BOMB_RADIUS_AND_DIED: -55,
+        DROPPED_BOMB_AND_COLLECTED_COIN_MEANWHILE: 25,
     
-        
     }
     
     

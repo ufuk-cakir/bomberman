@@ -15,7 +15,36 @@ ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 
 
 
-CONTINUE_TRAINING = 1
+CONTINUE_TRAINING = None
+
+
+# Ask from terminal wheter to continue training or not
+CONTINUE_TRAINING = input("Continue training? (y/n)")
+if CONTINUE_TRAINING == "y":
+    CONTINUE_TRAINING = True
+
+else:
+    CONTINUE_TRAINING = False
+    
+LOG_WANDB = input("Log to wandb? (y/n)")
+if LOG_WANDB == "y":
+    LOG_WANDB = True
+else:
+    LOG_WANDB = False
+    
+debug_events = input("Debug events while training? (y/n)")
+if debug_events == "y":
+    DEBUG_EVENTS = True
+else:
+    DEBUG_EVENTS = False
+    
+log_to_file = input("Log to file? (y/n)")
+if log_to_file == "y":
+    LOG_TO_FILE = True
+else:
+    LOG_TO_FILE = False
+
+
 
 from collections import deque
 
@@ -78,7 +107,7 @@ def act(self, game_state: dict) -> str:
         
     # If sample is smaller than epsilon, choose random action
     if sample < eps_threshold:
-        #self.logger.debug("Choosing action purely at random.")
+        self.logger.debug("Choosing action purely at random.")
         self.prob_a = 1/len(ACTIONS)
         return np.random.choice(ACTIONS)
     # Get action probabilities
@@ -108,7 +137,7 @@ def act(self, game_state: dict) -> str:
 # Copied from rule_based agent TODO
 import numpy as np
 from random import shuffle
-def look_for_targets(free_space, start, targets, logger=None):
+def look_for_targets(free_space, start, targets,logger=None):
     """Find direction of closest target that can be reached via free tiles.
 
     Performs a breadth-first search of the reachable free tiles until a target is encountered.
@@ -122,6 +151,7 @@ def look_for_targets(free_space, start, targets, logger=None):
     Returns:
         coordinate of first step towards closest target or towards tile closest to any target.
     """
+
     if len(targets) == 0: return None
 
     frontier = [start]
@@ -151,6 +181,7 @@ def look_for_targets(free_space, start, targets, logger=None):
                 parent_dict[neighbor] = current
                 dist_so_far[neighbor] = dist_so_far[current] + 1
     if logger: logger.debug(f'Suitable target found at {best}')
+    
     # Determine the first step towards the best found target tile
     current = best
     while True:
@@ -159,6 +190,18 @@ def look_for_targets(free_space, start, targets, logger=None):
 
 
 
+def get_danger_level(agent_position, explosion_map, arena):
+    x, y = agent_position
+    danger_level = [0, 0, 0, 0]  # [UP, DOWN, LEFT, RIGHT]
+    directions = [(0, -1), (0, 1), (-1, 0), (1, 0)]  # [UP, DOWN, LEFT, RIGHT]
+
+    for i, (dx, dy) in enumerate(directions):
+        tile_x, tile_y = x + dx, y + dy
+        # Check if the tile is within the arena boundaries
+        if 0 <= tile_x < arena.shape[0] and 0 <= tile_y < arena.shape[1]:
+            danger_level[i] = int(explosion_map[tile_x, tile_y])
+
+    return danger_level
 
 
 # TODO implment ignore others timer like in rule_based_agent
@@ -239,6 +282,9 @@ def state_to_features(self,game_state: dict) -> np.array:
                    
     # Check if agent is in bomb blast range
     bomb_threat = 1 if (x, y) in blast_coords else 0
+    # additionaly check if agent is in explosion map
+    if explosion_map[x, y] > 0:
+        bomb_threat = 1
 
 
    
@@ -255,13 +301,20 @@ def state_to_features(self,game_state: dict) -> np.array:
     #crates_nearby = sum(1 for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)] if arena[x+dx, y+dy] == 1)
     
     # 9. Escape Route Available (simplified for brevity)
-    escape_route_available = 1 if free_spaces > 1 else 0
+    escape_route_available = 1 if free_spaces > 1 else 0 #TODO implement this correctly
 
     # 10. Direction to Nearest Target (simplified for brevity)
     # Assuming the function look_for_targets returns a direction as (dx, dy)
     targets = coins + dead_ends + crates + others # TODO add others? ADD flag if others are importatnt
     # Exclude targets that are occupied by a bomb
     targets = [targets[i] for i in range(len(targets)) if targets[i] not in bomb_xys]
+    
+    # Exclude targets that are currently in explosion map
+    targets = [targets[i] for i in range(len(targets)) if explosion_map[targets[i]] == 0]
+
+    # Exlucude coordinates that are in blast range of a bomb
+    targets = [targets[i] for i in range(len(targets)) if targets[i] not in blast_coords]
+    
     target_direction = look_for_targets(arena == 0, (x, y), targets)
 
     direction_to_target = [0, 0, 0, 0]  # [UP, DOWN, LEFT, RIGHT]
@@ -396,7 +449,7 @@ def state_to_features(self,game_state: dict) -> np.array:
             
 
         
-
+    
 
     # Distance to closest bomb
     distance_to_bombs = [np.abs(x-bx) + np.abs(y-by) for (bx, by) in bomb_xys]
@@ -409,12 +462,17 @@ def state_to_features(self,game_state: dict) -> np.array:
     
     # TODO: maybe add feature if closest opponen can drop bomb
     
+    
+    
+    # Danger level of each direction
+    danger_level = get_danger_level((x, y), explosion_map, arena)
+    
     # Combining all features into a single list
     features = [
         nearest_coin_distance, is_dead_end, bomb_threat, time_to_explode,
         can_drop_bomb, is_next_to_opponent, is_on_bomb, should_drop_bomb,
         escape_route_available
-    ] + direction_to_target + [is_in_loop, nearest_bomb_distance] + blast_in_direction #ignore_others_timer_normalized]
+    ] + direction_to_target + [is_in_loop, nearest_bomb_distance] + blast_in_direction + danger_level #ignore_others_timer_normalized]
     
     
     if 0:
@@ -433,6 +491,7 @@ def state_to_features(self,game_state: dict) -> np.array:
         self.logger.debug(f"nearest_bomb_distance: {nearest_bomb_distance}")
         self.logger.debug(f"bomb_xys: {bomb_xys}")
         self.logger.debug(f"blast_in_direction: {blast_in_direction}")
+        self.logger.debug(f'Danger level: {danger_level}')
     #direction_to_target = [0, 0, 0, 0] # [UP, DOWN, LEFT, RIGHT]
     
     

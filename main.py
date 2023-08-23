@@ -119,6 +119,9 @@ def main(argv = None):
 
     play_parser.add_argument("--silence-errors", default=False, action="store_true", help="Ignore errors from agents")
 
+
+    
+
     group = play_parser.add_mutually_exclusive_group()
     group.add_argument("--skip-frames", default=False, action="store_true", help="Play several steps per GUI render.")
     group.add_argument("--no-gui", default=False, action="store_true", help="Deactivate the user interface and play as fast as possible.")
@@ -126,6 +129,10 @@ def main(argv = None):
     # Replay arguments
     replay_parser = subparsers.add_parser("replay")
     replay_parser.add_argument("replay", help="File to load replay from")
+
+    # Add custom arguments
+    # Continue with training
+    
 
     # Interaction
     for sub in [play_parser, replay_parser]:
