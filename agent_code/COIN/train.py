@@ -29,6 +29,10 @@ WANDB_FLAG = 1
 
 import settings
 
+log_to_file = False
+
+
+
 class Values:
     ''' Values to keep track of each game and reset after each game'''
     
@@ -76,21 +80,21 @@ class Values:
         wandb.log({"mean_loss": np.mean(self.loss_history), "mean_reward": np.mean(self.reward_history),
                "cumulative_reward": self.score,
                "invalid_actions_per_game": self.invalid_actions}) if WANDB_FLAG else None
-        self.logger.info(f"END OF GAME: mean_loss: {np.mean(self.loss_history)}, cumulative_reward: {self.score}")
+        self.logger.info(f"END OF GAME: mean_loss: {np.mean(self.loss_history)}, cumulative_reward: {self.score}") if log_to_file else None
         
         
-        self.logger.info(f'Event stats:')
+        self.logger.info(f'Event stats:') if log_to_file else None
         # Convert list of tuples to list of strings
         event_strings = [item for tup in self.event_history for item in tup]
 
         # Now you can use Counter on this list of strings
         event_counts = Counter(event_strings)
         for event, count in event_counts.items():
-            self.logger.info(f'{event}: {count}')
+            self.logger.info(f'{event}: {count}')if log_to_file else None
             if WANDB_FLAG:
                 wandb.log({f"event_{event}": count})
 
-        self.logger.info("--------------------------------------")
+        self.logger.info("--------------------------------------")if log_to_file else None
         
         self.reset()
         wandb.save(HYPER.MODEL_NAME) if WANDB_FLAG else None
@@ -105,19 +109,19 @@ class Values:
             # Check specfically for left-right-left-right
             if "MOVED_LEFT" in self.event_history[-2:] and "MOVED_RIGHT" in self.event_history[-4:-2]:
                 self.add_event("REPEATING_ACTIONS")
-                self.logger.info(f'Agent is repeating actions')
+                self.logger.info(f'Agent is repeating actions') if log_to_file else None
                 return True
             if "MOVED_RIGHT" in self.event_history[-2:] and "MOVED_LEFT" in self.event_history[-4:-2]:
                 self.add_event("REPEATING_ACTIONS")
-                self.logger.info(f'Agent is repeating actions')
+                self.logger.info(f'Agent is repeating actions')if log_to_file else None
                 return True
             if "MOVED_UP" in self.event_history[-2:] and "MOVED_DOWN" in self.event_history[-4:-2]:
-                self.add_event("REPEATING_ACTIONS")
+                self.add_event("REPEATING_ACTIONS") 
                 self.logger.info(f'Agent is repeating actions')
                 return True
             if "MOVED_DOWN" in self.event_history[-2:] and "MOVED_UP" in self.event_history[-4:-2]:
                 self.add_event("REPEATING_ACTIONS")
-                self.logger.info(f'Agent is repeating actions')
+                self.logger.info(f'Agent is repeating actions') if log_to_file else None
                 return True
             
         
@@ -351,6 +355,10 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         # Store the model
         with open(HYPER.MODEL_NAME, "wb") as file:
             pickle.dump(self.model, file)
+            
+    #clear log file
+    with open("logs/PPOLD.log", "w") as file:
+        file.write("")
 
 
 

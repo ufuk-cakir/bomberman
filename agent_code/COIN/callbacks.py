@@ -15,7 +15,7 @@ ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 
 
 
-CONTINUE_TRAINING = 0
+CONTINUE_TRAINING = 1
 
 from collections import deque
 
