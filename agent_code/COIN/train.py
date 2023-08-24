@@ -34,7 +34,8 @@ import settings
 
 log_to_file = LOG_TO_FILE
 
-
+train_in_round = True
+TRAIN_EVERY_N_STEPS = 128
 
 class Values:
     ''' Values to keep track of each game and reset after each game'''
@@ -319,12 +320,13 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     
     
     if not self._done:
-        if self.values.global_step % 128== 0:
+        if self.values.global_step % TRAIN_EVERY_N_STEPS== 0:
             
-            train_net(self)
-            self.values.log_wandb_end()
-            
-           # self.loss_history = []
+            if train_in_round:
+                train_net(self)
+                self.values.log_wandb_end()
+                
+            # self.loss_history = []
             
 
 def end_of_round(self, last_game_state: dict, last_action: str, events: List[str]):
@@ -348,7 +350,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     calculate_events_and_reward(self, last_game_state, last_action, last_game_state, events)
     
     # 
-    if self.values.global_step % 128== 0:
+    if self.values.global_step > 0:
         train_net(self)
         
         # Log and reset values
@@ -485,8 +487,16 @@ def check_custom_events(self, events: List[str],action, features_old, features_n
         if nearest_bomb_distance_new > 0:
             events.append(DROPPED_BOMB_WHEN_SHOULD_AND_MOVED)
         
-    if bomb_threat_new:
-        events.append(IN_BLAST_RADIUS)
+    blast_count_old = [blast_count_up_old, blast_count_down_old, blast_count_left_old, blast_count_right_old]
+    blast_count_new = [blast_count_up_new, blast_count_down_new, blast_count_left_new, blast_count_right_new]
+    
+    danger_level_old = [danger_level_up_old, danger_level_down_old, danger_level_left_old, danger_level_right_old]
+    danger_level_new = [danger_level_up_new, danger_level_down_new, danger_level_left_new, danger_level_right_new]
+    
+    
+    # TODO hier punishen wenn agent bombe placed aber sich nicht rechtzeitig bewegt, oben nochmal abchecekn
+    #---------------------------------------_!
+    
         
     # Check if agent reduced blast count in certain direction
     if blast_count_up_new < blast_count_up_old:
@@ -652,7 +662,7 @@ def reward_from_events(self, events: List[str]) -> int:
         TOOK_DIRECTION_TOWARDS_TARGET: 20,
         TOOK_DIRECTION_AWAY_FROM_TARGET: -25,
         #IS_IN_LOOP: -10,
-        GOT_OUT_OF_LOOP: 10,
+        #GOT_OUT_OF_LOOP: 10,#not sure if this is working
         IN_BLAST_RADIUS:-50,
         BLAST_COUNT_UP_DECREASED: 25,
         BLAST_COUNT_DOWN_DECREASED: 25,
@@ -660,7 +670,7 @@ def reward_from_events(self, events: List[str]) -> int:
         BLAST_COUNT_RIGHT_DECREASED: 25,
         WENT_INTO_BOMB_RADIUS_AND_DIED: -55,
         DROPPED_BOMB_AND_COLLECTED_COIN_MEANWHILE: 25,
-    
+        e.SURVIVED_ROUND:60,
     }
     
     
