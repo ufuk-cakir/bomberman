@@ -240,7 +240,8 @@ def state_to_features(self,game_state: dict) -> np.array:
     explosion_map = game_state['explosion_map'] 
     
     explosion_coords = [(x,y) for x in range(arena.shape[0]) for y in range(arena.shape[1]) if explosion_map[x,y] > 0]
-    print(explosion_coords)
+    if log_features: print("explosion_coords:",explosion_coords)
+    if log_features: print("explosion_map:",explosion_map)
     # 1. Distance to Nearest Coin
     distances_to_coins = [np.abs(x-cx) + np.abs(y-cy) for (cx, cy) in coins]
     nearest_coin_distance = min(distances_to_coins) if coins else -1
@@ -452,14 +453,14 @@ def state_to_features(self,game_state: dict) -> np.array:
             for j in range(1, 4):  # Check up to 3 tiles in each direction
                 # Calculate the coordinates of the tile in the current direction
                 tile_x, tile_y = x + j*dx, y + j*dy
-                print("x,y: ", tile_x, tile_y)
+                if log_features: print("x,y: ", tile_x, tile_y)
               
                 
                 # Check if the tile is in the blast range
                 if (tile_x, tile_y) in blast_coords:
                     blast_in_direction[i] += 1
                 if (tile_x,tile_y) in explosion_coords:
-                    print("dangerlevel plus 1")
+                    if log_features: print("dangerlevel plus 1")
                     danger_level[i] += 1
                 # If the tile is a wall, stop checking further in this direction
                 elif arena[tile_x, tile_y] == -1:
@@ -475,9 +476,9 @@ def state_to_features(self,game_state: dict) -> np.array:
             for j in range(1, 4):  # Check up to 3 tiles in each direction
                 # Calculate the coordinates of the tile in the current direction
                 tile_x, tile_y = x + j*dx, y + j*dy
-                print("x,y: ", tile_x, tile_y)
+                if log_features: print("x,y: ", tile_x, tile_y)
                 if (tile_x,tile_y) in explosion_coords:
-                    print("dangerlevel plus 1")
+                    if log_features: print("dangerlevel plus 1")
                     danger_level[i] += 1
                 # If the tile is a wall, stop checking further in this direction
                 elif arena[tile_x, tile_y] == -1:

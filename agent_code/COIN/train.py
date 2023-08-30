@@ -670,7 +670,7 @@ def reward_from_events(self, events: List[str]) -> int:
         BLAST_COUNT_RIGHT_DECREASED: 25,
         WENT_INTO_BOMB_RADIUS_AND_DIED: -55,
         DROPPED_BOMB_AND_COLLECTED_COIN_MEANWHILE: 25,
-        e.SURVIVED_ROUND:60,
+        e.SURVIVED_ROUND:150,
     }
     
     
