@@ -25,6 +25,7 @@ import wandb
 
 WANDB_NAME = "DEEP_Q"
 WANDB_FLAG = LOG_WANDB
+print(f"WANDB_FLAG: {WANDB_FLAG}")
 
 
 DEBUG_EVENTS =  DEBUG_EVENTS
@@ -181,8 +182,8 @@ def setup_training(self):
     # Example: Setup an array that will note transition tuples
     # (s, a, r, s')
  
-   
     if WANDB_FLAG:
+        print("Logging to wandb")
         wandb.init(project="bomberman", name=WANDB_NAME)
         for key, value in HYPER.__dict__.items():
             if not key.startswith("__"):
@@ -347,8 +348,15 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
             wandb.log({"expected_state_action_values": expected_state_action_values})
             wandb.log({"difference": difference})
     
-    if self.N_episodes % HYPER.target_update== 0:
-        self.model.target_net.load_state_dict(self.model.policy_net.state_dict())
+    # Soft update of target network
+    
+
+    target_net_state_dict = self.model.target_net.state_dict()
+    policy_net_state_dict = self.model.policy_net.state_dict()
+    
+    for key in policy_net_state_dict:
+        target_net_state_dict[key] = policy_net_state_dict[key]*HYPER.tau + target_net_state_dict[key]*(1-HYPER.tau)
+    self.model.target_net.load_state_dict(target_net_state_dict)
     #calculate_events_and_reward(self, old_game_state, self_action, new_game_state, events)
     
   
