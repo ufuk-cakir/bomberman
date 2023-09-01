@@ -111,6 +111,7 @@ class deepQ:
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
+        return loss.item(), state_action_values.mean().item(), expected_state_action_values.mean().item()
 
     def update_target_network(self):
         self.target_net.load_state_dict(self.policy_net.state_dict())

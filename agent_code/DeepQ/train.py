@@ -199,6 +199,7 @@ def setup_training(self):
     self.total_reward = 0
     self.N_episodes = 0
     self.invalid_actions = 0
+ 
 
    
         
@@ -338,7 +339,13 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     
     # Optimize model if enough data is available
     if len(self.model.memory) > HYPER.batch_size:
-        self.model.optimize()
+        loss, state_action_values, expected_state_action_values = self.model.optimize()
+        difference = state_action_values - expected_state_action_values
+        if WANDB_FLAG:
+            wandb.log({"loss_step": loss})
+            wandb.log({"state_action_values": state_action_values})
+            wandb.log({"expected_state_action_values": expected_state_action_values})
+            wandb.log({"difference": difference})
     
     if self.N_episodes % HYPER.target_update== 0:
         self.model.target_net.load_state_dict(self.model.policy_net.state_dict())
@@ -390,6 +397,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     if WANDB_FLAG:
         wandb.log({"cumulative_reward": self.total_reward})
         wandb.log({"invalid_actions_per_game": self.invalid_actions})
+        wandb.log({"agent_score": last_game_state["self"][1]})
     
     # Reset values
     self.steps_done = 0
