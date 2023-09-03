@@ -12,18 +12,18 @@ import numpy as np
 
 class HYPER:
     LOCAL_VIEW_SIZE = 4 #tiles in each direction, so total view is 9x9 
-    SIZE_OF_STATE_VECTOR = 23
+    SIZE_OF_STATE_VECTOR = 24 +25
     learning_rate = 0.0005#0.0005
     gamma         = 0.7#0.98 # discount factor control how much importance we give to future rewards. lower gamma -> short sighted, higher gamma -> far sighted
     lmbda         = 0.95 # Used for GAE controls how much importance we give to future rewards. lower lambda -> short sighted, higher lambda -> far sighted
-    eps_clip      = 0.3# 0.1 # clups the ratio. If policy updates too drastically, decrease. If policy updates too slowly, increase
-    EPS_START     = 0.05# 0.9 # Epsilon greedy policy if agents converges to suboptimal policy, increase. If agent is too random, decrease
+    eps_clip      = 0.1# 0.1 # clups the ratio. If policy updates too drastically, decrease. If policy updates too slowly, increase
+    EPS_START     = 0.9# 0.9 # Epsilon greedy policy if agents converges to suboptimal policy, increase. If agent is too random, decrease
     EPS_END       = 0.05#0.05 # Epsilon greedy policy if agents converges to suboptimal policy, increase. If agent is too random, decrease
-    EPS_DECAY     = 4000 # Decay rate of epsilon greedy policy, if agent converges to suboptimal policy, increase. If agent is too random, decrease
-    N_EPOCH       = 3#4 # Number of times we update the network on same batch of data
+    EPS_DECAY     = 2000# Decay rate of epsilon greedy policy, if agent converges to suboptimal policy, increase. If agent is too random, decrease
+    N_EPOCH       = 4#4 # Number of times we update the network on same batch of data
     UPDATE_INTERVAL     = 30
-    HIDDEN_SIZE = 50
-    HIDDEN_LAYER = 2#6
+    HIDDEN_SIZE = 128
+    HIDDEN_LAYER = 3#6
     ACTIVATION_FUNCTION = nn.Tanh() #ReLu, LeakyReLu, 
     MODEL_NAME = "coin_collector_new.pt"
     
@@ -53,6 +53,7 @@ class PPO(nn.Module):
         Returns:
             prob (torch.tensor): Probability distribution over actions
         '''
+
         x = HYPER.ACTIVATION_FUNCTION(self.fc1(x))
         for i in range(HYPER.HIDDEN_LAYER):
             x = HYPER.ACTIVATION_FUNCTION(self.hidden(x))
@@ -61,6 +62,7 @@ class PPO(nn.Module):
         return prob
     
     def v(self, x):
+
         x = HYPER.ACTIVATION_FUNCTION(self.fc1(x))
         for i in range(HYPER.HIDDEN_LAYER):
             x = HYPER.ACTIVATION_FUNCTION(self.hidden(x))

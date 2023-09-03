@@ -25,6 +25,7 @@ import wandb
 
 WANDB_NAME = "DEEP_Q"
 WANDB_FLAG = LOG_WANDB
+print(f"WANDB_FLAG: {WANDB_FLAG}")
 
 
 DEBUG_EVENTS =  DEBUG_EVENTS
@@ -181,8 +182,8 @@ def setup_training(self):
     # Example: Setup an array that will note transition tuples
     # (s, a, r, s')
  
-   
     if WANDB_FLAG:
+        print("Logging to wandb")
         wandb.init(project="bomberman", name=WANDB_NAME)
         for key, value in HYPER.__dict__.items():
             if not key.startswith("__"):
@@ -199,7 +200,8 @@ def setup_training(self):
     self.total_reward = 0
     self.N_episodes = 0
     self.invalid_actions = 0
- 
+    self.best_score = 0
+    self.bomb_timer = 0
 
    
         
@@ -207,7 +209,11 @@ def setup_training(self):
 #----------TODO change this to custom one
 #from .reward_shaping import custom_rewards, reward_coin_distance, check_placed_bomb, check_blast_radius, CLOSER_TO_COIN, FURTHER_FROM_COIN, ESCAPABLE_BOMB, BOMB_DESTROYS_CRATE, WAITED_TOO_LONG, IN_BLAST_RADIUS
 WAITED_TOO_LONG = "WAITED_TOO_LONG"
+DROPPED_BOMB_AND_MOVED = "DROPPED_BOMB_AND_MOVED"
+DROPPED_BOMB_AND_STAYED = "DROPPED_BOMB_AND_STAYED"
 
+WRONG_DIRECTION_TO_COIN = "WRONG_DIRECTION_TO_COIN"
+CORRECT_DIRECTION_TO_COIN = "CORRECT_DIRECTION_TO_COIN"
 def calculate_events_and_reward(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
     self.values.step()
     
@@ -257,6 +263,90 @@ def calculate_events_and_reward(self, old_game_state: dict, self_action: str, ne
 
 
 
+def path_to_target(start, target, parent_dict):
+    """Backtrack from target to start using parent_dict to retrieve the path."""
+    path = [target]
+    while target != start:
+        target = parent_dict[target]
+        path.append(target)
+    path.reverse()
+    return path
+
+
+
+from random import shuffle
+def look_for_targets(free_space, start, targets,logger=None):
+    """Find direction of closest target that can be reached via free tiles.
+
+    Performs a breadth-first search of the reachable free tiles until a target is encountered.
+    If no target can be reached, the path that takes the agent closest to any target is chosen.
+
+    Args:
+        free_space: Boolean numpy array. True for free tiles and False for obstacles.
+        start: the coordinate from which to begin the search.
+        targets: list or array holding the coordinates of all target tiles.
+        logger: optional logger object for debugging.
+    Returns:
+        coordinate of first step towards closest target or towards tile closest to any target.
+    """
+
+    if len(targets) == 0: return None
+
+    frontier = [start]
+    parent_dict = {start: start}
+    dist_so_far = {start: 0}
+    best = start
+    
+    best_dist = np.sum(np.abs(np.subtract(targets, start)), axis=0).min()
+
+    while len(frontier) > 0:
+        current = frontier.pop(0)
+        # Find distance from current position to all targets, track closest
+        d = np.sum(np.abs(np.subtract(targets, current)), axis=1).min()
+        if d + dist_so_far[current] <= best_dist:
+            best = current
+            best_dist = d + dist_so_far[current]
+        if d == 0:
+            # Found path to a target's exact position, mission accomplished!
+            return path_to_target(start, current, parent_dict)
+            
+        # Add unexplored free neighboring tiles to the queue in a random order
+        x, y = current
+        neighbors = [(x, y) for (x, y) in [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)] if free_space[x, y]]
+        shuffle(neighbors)
+        for neighbor in neighbors:
+            if neighbor not in parent_dict:
+                frontier.append(neighbor)
+                parent_dict[neighbor] = current
+                dist_so_far[neighbor] = dist_so_far[current] + 1
+    if logger: logger.debug(f'Suitable target found at {best}')
+    
+    # Determine the first step towards the best found target tile
+    current = best
+    while True:
+        if parent_dict[current] == start: return current
+        current = parent_dict[current]
+
+
+def best_direction_to_coin(state):
+    free_space = state[0] == 0 # Assuming 0 denotes free space in the terrain channel
+    self_x, self_y = np.argwhere(state[4] == 1)  # Using the self_channel
+    # Convert tensor to numpy array
+    self_x = int(self_x[0])
+    self_y = int(self_y[0])
+    self_pos = (self_x, self_y)
+
+    
+    coords = np.argwhere(state[3] == 1).T  # Transpose the array
+    coins = [tuple(coord) for coord in coords]
+  
+    path_to_closest_coin = look_for_targets(free_space, self_pos, coins)
+
+    if path_to_closest_coin is not None and len(path_to_closest_coin) > 1:
+        # Return the next step in the path
+        return path_to_closest_coin[1]
+    else:
+        return None
 def did_move_closer_to_coin(state, next_state) -> bool:
    
     self_pos = np.argwhere(state[4] == 1)  # Using the self_channel
@@ -283,6 +373,26 @@ def did_move_closer_to_coin(state, next_state) -> bool:
 
 
 
+
+
+def agent_moved(state, next_state) -> bool:
+    # self channel is 4th channel
+    self_pos = np.argwhere(state[4] == 1)  # Using the self_channel
+    next_self_pos = np.argwhere(next_state[4] == 1)  # Using the self_channel
+    # Convert to numpy array
+    self_pos = np.array(self_pos)
+    next_self_pos = np.array(next_self_pos)
+    
+    if np.array_equal(self_pos, next_self_pos):
+        return False # Agent did not move
+    else:
+        return True # Agent moved
+
+
+
+
+
+
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
     """
     Called once per step to allow intermediate rewards based on game events.
@@ -302,14 +412,38 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     """
     state = state_to_features(self, old_game_state)
     next_state = state_to_features(self, new_game_state)
+    
     state = torch.tensor(state, device=self.device, dtype=torch.float)
     next_state = torch.tensor(next_state, device=self.device, dtype=torch.float)
-    
     
     if did_move_closer_to_coin(state, next_state):
         events.append(CLOSER_TO_COIN)
         self.logger.info(f'Agent moved closer to coin') if log_to_file else None
     
+    if DEBUG_EVENTS:self.logger.info(self_action)
+    if "DROPPED_BOMB" in self_action:
+        self.bomb_timer +=1
+        if agent_moved(state, next_state):
+            events.append(DROPPED_BOMB_AND_MOVED)
+            self.logger.info(f'Agent dropped bomb and moved') if log_to_file else None
+        else:
+            events.append(DROPPED_BOMB_AND_STAYED)
+    
+    if self.bomb_timer > 4:
+        self.bomb_timer = 0
+        
+    best_move = best_direction_to_coin(state)
+    self.logger.info(f'Best move: {best_move}') if log_to_file else None
+    
+    actual_move = tuple(np.argwhere(next_state[4] == 1))  # Using the self_channel for the next position
+    self.logger.info(f'Actual move: {actual_move}') if log_to_file else None
+    if best_move and best_move != actual_move:
+        events.append(WRONG_DIRECTION_TO_COIN)
+        
+    if best_move and best_move == actual_move:
+        events.append(CORRECT_DIRECTION_TO_COIN)
+
+            
     
     
     state = state.unsqueeze(0)
@@ -347,11 +481,21 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
             wandb.log({"expected_state_action_values": expected_state_action_values})
             wandb.log({"difference": difference})
     
-    if self.N_episodes % HYPER.target_update== 0:
-        self.model.target_net.load_state_dict(self.model.policy_net.state_dict())
+    # Soft update of target network
+    
+
+    target_net_state_dict = self.model.target_net.state_dict()
+    policy_net_state_dict = self.model.policy_net.state_dict()
+    
+    for key in policy_net_state_dict:
+        target_net_state_dict[key] = policy_net_state_dict[key]*HYPER.tau + target_net_state_dict[key]*(1-HYPER.tau)
+    self.model.target_net.load_state_dict(target_net_state_dict)
     #calculate_events_and_reward(self, old_game_state, self_action, new_game_state, events)
     
-  
+    if DEBUG_EVENTS:
+        self.logger.info(f'Event stats:') 
+        # Convert list of tuples to list of strings
+        self.logger.info(events)
 
 def end_of_round(self, last_game_state: dict, last_action: str, events: List[str]):
     """
@@ -410,9 +554,12 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
             pickle.dump(self.model.memory, f)
     
     
-    # Save model
-    with open(HYPER.model_name, "wb") as f:
-        pickle.dump(self.model, f)
+    # Save model if its the best one
+    if last_game_state["self"][1] > self.best_score:
+        self.best_score = last_game_state["self"][1]
+        self.logger.info(f"New best score: {self.best_score}")
+        with open(HYPER.model_name, "wb") as f:
+            pickle.dump(self.model, f)
 
     
     
@@ -692,13 +839,18 @@ def reward_from_events(self, events: List[str]) -> int:
     coin_rewards = {
         e.COIN_COLLECTED: 25,
         #FURTHER_FROM_COIN:-10,
-        CLOSER_TO_COIN: 15,
+        #CLOSER_TO_COIN: 15,
         #e.BOMB_DROPPED:-20,
-        e.INVALID_ACTION:-10,
-        e.CRATE_DESTROYED: 20,
-        e.COIN_FOUND: 15,
+        #e.INVALID_ACTION:-10,
+        #e.CRATE_DESTROYED: 20,
+        #e.COIN_FOUND: 15,
         e.KILLED_SELF:-25,
         e.WAITED:-10,
+        DROPPED_BOMB_AND_MOVED: 20,
+        DROPPED_BOMB_AND_STAYED: -5,
+        e.BOMB_DROPPED:-10,
+        WRONG_DIRECTION_TO_COIN:-10,
+        CORRECT_DIRECTION_TO_COIN:20,
         #e.SURVIVED_ROUND:150,
     }
     

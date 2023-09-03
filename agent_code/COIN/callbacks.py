@@ -115,6 +115,7 @@ def act(self, game_state: dict) -> str:
     if sample < eps_threshold:
        # self.logger.debug("Choosing action purely at random.")
         self.prob_a = 1/len(ACTIONS)
+        self.RANDOM_ACTION = True
         return np.random.choice(ACTIONS)
     # Get action probabilities
     prob_distr = self.model.pi(torch.from_numpy(s).float())
@@ -127,6 +128,7 @@ def act(self, game_state: dict) -> str:
         self.logger.debug(f"Action: {action}")
         self.logger.debug(f"Probabilities: {prob_distr}")
     self.prob_a = prob_distr[a].item()
+    self.RANDOM_ACTION = False
     return action 
 
     
@@ -303,6 +305,7 @@ def state_to_features(self,game_state: dict) -> np.array:
         bomb_threat = 1
 
 
+   
    
     # 5. Can Drop Bomb
     can_drop_bomb = 1 if bombs_left > 0 and (x, y) not in bomb_xys else 0
@@ -509,6 +512,26 @@ def state_to_features(self,game_state: dict) -> np.array:
    
    
     
+    # count in each direction how many free tiles are available until a wall or crate is hit
+    
+    ''' 
+    free_tiles_in_direction = [0, 0, 0, 0] # [UP, DOWN, LEFT, RIGHT]
+    for i, (dx, dy) in enumerate(directions):
+        for j in range(1, 10):
+            # Calculate the coordinates of the tile in the current direction
+            tile_x, tile_y = x + j*dx, y + j*dy
+            # Check if the tile is a wall or crate
+            if arena[tile_x, tile_y] == -1 or arena[tile_x, tile_y] == 1:
+                break
+            # If the tile is free, increase the counter
+            elif arena[tile_x, tile_y] == 0:
+                free_tiles_in_direction[i] += 1
+    
+    # Normalize free_tiles_in_direction
+    free_tiles_in_direction = [x / max(free_tiles_in_direction) for x in free_tiles_in_direction]
+    '''
+    
+    
     
     
     # Combining all features into a single list
@@ -516,9 +539,137 @@ def state_to_features(self,game_state: dict) -> np.array:
         nearest_coin_distance, is_dead_end, bomb_threat, time_to_explode,
         can_drop_bomb, is_next_to_opponent, is_on_bomb, should_drop_bomb,
         escape_route_available
-    ] + direction_to_target + [is_in_loop, nearest_bomb_distance] + blast_in_direction + danger_level #ignore_others_timer_normalized]
+    ] + [is_in_loop, nearest_bomb_distance] + blast_in_direction + danger_level #ignore_others_timer_normalized]
     
     #give flattened array if local map as features, go three tiles in each direction
+    '''
+    # Get angle to nearest coin
+    if len(coins) > 0:
+        nearest_coin = coins[np.argmin(distances_to_coins)]
+        angle_to_nearest_coin = np.arctan2(nearest_coin[1] - y, nearest_coin[0] - x)
+        features.append(angle_to_nearest_coin)
+    else:
+        features.append(0)
+    '''
+    
+    # Add direction to nearest coin: 0 = UP, 1 = DOWN, 2 = LEFT, 3 = RIGHT
+    if len(coins) > 0:
+        nearest_coin = coins[np.argmin(distances_to_coins)]
+        if nearest_coin[1] < y: features.append(0)
+        elif nearest_coin[1] > y: features.append(1)
+        elif nearest_coin[0] < x: features.append(2)
+        elif nearest_coin[0] > x: features.append(3)
+        else: features.append(-1)
+        
+    else:
+        features.append(-1)
+        
+     
+    
+    
+            
+    
+    
+    
+    
+    
+    # check which directions are free
+    directions = [(0, -1), (0, 1), (-1, 0), (1, 0)]  # [UP, DOWN, LEFT, RIGHT]
+    free_directions = [0, 0, 0, 0]
+    for i, (dx, dy) in enumerate(directions):
+        if arena[x + dx, y + dy] == 0:
+            free_directions[i] = 1
+    features = features + free_directions
+    
+    
+    # local map 
+    local = np.zeros((5,5)) -2.5
+    
+    walls = [(xs,ys) for xs in range(arena.shape[0]) for ys in range(arena.shape[1]) if arena[xs,ys] == -1]
+    
+    # get the coordinates of the local map view
+    local_coords = [(xs,ys) for xs in range(x-2,x+3) for ys in range(y-2,y+3)]
+
+    # fill in arena values
+    for (xs,ys) in local_coords:
+        if (xs,ys) in walls:
+            local[xs-x+2,ys-y+2] = -2.5
+        elif (xs,ys) in coins:
+            local[xs-x+2,ys-y+2] = 1.5
+        elif (xs,ys) in crates:
+            local[xs-x+2,ys-y+2] = 1
+        elif (xs,ys) in others:
+            local[xs-x+2,ys-y+2] = -4.5
+        elif (xs,ys) in bomb_xys:
+            local[xs-x+2,ys-y+2] = -1
+        elif (xs,ys) in explosion_coords:
+            local[xs-x+2,ys-y+2] = -3.5
+        elif (xs,ys) in blast_coords:
+            local[xs-x+2,ys-y+2] = -2.5
+        elif (xs,ys) == (x,y):
+            local[xs-x+2,ys-y+2] = 5
+        elif xs < 0 or xs > 16 or ys < 0 or ys > 16:
+            local[xs-x+2,ys-y+2] = -2.5
+        
+        else:
+            local[xs-x+2,ys-y+2] = 0
+     
+    
+    
+    '''
+    # add coins
+    for (cx, cy) in coins:
+        if (cx-x) < 3 and (cy-y) < 3:
+            local[cx-x+2, cy-y+2] = 1.5
+    
+    # add free tiles
+    for (fx, fy) in free_spaces:
+        if (fx-x) < 3 and (fy-y) < 3:
+            local[fx-x+2, fy-y+2] = 0   
+            
+    # add walls
+    for (wx, wy) in walls:
+        if (wx-x) < 3 and (wy-y) < 3:
+            local[wx-x+2, wy-y+2] = -2.5
+    
+    # add bombs
+    for (bx, by), t in bombs:
+        if (bx-x) < 3 and (by-y) < 3:
+            local[bx-x+2, by-y+2] = -t - 0.25 # negative values to emphasize danger
+            
+    # add crates
+    for (cx, cy) in crates:
+        if (cx-x) < 3 and (cy-y) < 3:
+            local[cx-x+2, cy-y+2] = 1
+            
+    # add others
+    for (ox, oy) in others:
+        if (ox-x) < 3 and (oy-y) < 3:
+            local[ox-x+2, oy-y+2] = -4.5
+    
+    # add explosion map
+    for (ex, ey) in explosion_coords:
+        if (ex-x) < 3 and (ey-y) < 3:
+            local[ex-x+2, ey-y+2] = -3.5 # negative values to emphasize danger
+    
+    # add blast map
+    for (bx, by) in blast_coords:
+        if (bx-x) < 3 and (by-y) < 3:
+            local[bx-x+2, by-y+2] = -2.5
+    '''
+ 
+    # Start with agent position
+    local[2,2] = 5 # agent position
+    
+
+    
+    
+    
+       
+    # add to features
+    features = features + local.flatten().tolist()
+    
+    return(np.array(features))
 
     '''
     # Initialize a 3x3 array with negative values
@@ -568,6 +719,43 @@ def state_to_features(self,game_state: dict) -> np.array:
     #direction_to_target = [0, 0, 0, 0] # [UP, DOWN, LEFT, RIGHT]
     
     
+    # Give instead the whole arena as feature
+    
+    board = arena.copy().astype(float)
+    
+    
+    # Put bombs on board with timer
+    for (bx, by), t in bombs:
+        val = t + .25 # add 2.5 to distinguish from crates
+        board[bx, by] = -val # negative values to emphasize danger
+        
+    
+    # Put coins on board
+
+    for (cx, cy) in coins:
+        board[cx, cy] = 1.5 # add 1.5 to distinguish from crates
+        
+    # put explosion map on board
+    for (ex, ey) in explosion_coords:
+        board[ex, ey] = -3.5 # negative values to emphasize danger
+    
+
+    # put others on board, add indicator if they can drop bomb
+    other_agents = game_state['others']
+    for agent in other_agents:
+        (ox, oy) = agent[3]
+        if agent[2]:
+            board[ox, oy] = -4.5
+        else:
+            board[ox, oy] = 4.5
+            
+    
+    
+    # Put own position on board
+    board[x, y] = 5
+    features = board.flatten().tolist()
+
+    # self.logger.debug(f"number of features: {len(features)}")
     #self.logger.debug(f"after:{direction_to_target}")
     #self.logger.debug("features: " + str(features))
     return np.array(features)

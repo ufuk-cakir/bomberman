@@ -24,7 +24,7 @@ import wandb
 
 from .ppo import HYPER
 
-WANDB_NAME = "COIN_COLLECTOR_SMALL"
+WANDB_NAME = "COIN_COLLECTOR_WITHOUT_DIRECTION"
 WANDB_FLAG = LOG_WANDB
 
 
@@ -34,14 +34,16 @@ import settings
 
 log_to_file = LOG_TO_FILE
 
-train_in_round = True
+train_in_round = False 
 TRAIN_EVERY_N_STEPS = -1 # if -1 then train after each round
-TRAIN_EVERY_N_STEPS = 1000
-
+TRAIN_EVERY_N_STEPS = 30
+TRAIN_EVERY_END_OF_ROUND = True
 class Values:
     ''' Values to keep track of each game and reset after each game'''
     
     def __init__(self, logger=None):
+        self.random_actions = 0
+        self.coordinate_history = deque([], 5)
         self.loss_history = []
         self.reward_history = []
         self.score = 0
@@ -64,6 +66,8 @@ class Values:
         self.data = []
         self.invalid_actions = 0
         self.frames_after_bomb = 0
+        self.coordinate_history = deque([], 5)
+        self.random_actions = 0
 
         
     def add_loss(self,loss,):
@@ -198,8 +202,9 @@ def setup_training(self):
     
     self.values = Values(   logger=self.logger)
     self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    self.logger.info(f'Using device: {self.device}')
     self.model = self.model.to(self.device)
-
+    self.best_score = 0
    
           
 def train_net(self):
@@ -249,6 +254,8 @@ def calculate_events_and_reward(self, old_game_state: dict, self_action: str, ne
     feature_state_new = state_to_features(self,new_game_state)
     
     
+    coordinate_old = old_game_state["self"][3]
+    self.values.coordinate_history.append(coordinate_old)
     
     if e.GOT_KILLED in events:
         done = True
@@ -277,6 +284,51 @@ def calculate_events_and_reward(self, old_game_state: dict, self_action: str, ne
     #check_blast_radius(old_game_state,events)
     
     
+    
+    
+    """
+    
+    
+    
+    # Check if agent is closer to closest coin
+    # reshape feature state to square grid 
+    feature_state_old = feature_state_old.reshape(17,17)
+    feature_state_new = feature_state_new.reshape(17,17)
+    
+    # Get coordinates of agent
+    agent_pos_old = np.where(feature_state_old == 5)
+    agent_pos_new = np.where(feature_state_new == 5)
+    
+    
+    
+    # Get coordinates of coins
+    coin_positions_old = np.where(feature_state_old == 1.5)
+    coin_positions_new = np.where(feature_state_new == 1.5)
+
+    # get closest coin
+    distances_to_coin = [np.abs(x - agent_pos_old[0]) + np.abs(y - agent_pos_old[1]) for x,y in zip(coin_positions_old[0],coin_positions_old[1])]
+    closest_coin_old = np.argmin(distances_to_coin)
+    closest_coin_x_y = (coin_positions_old[0][closest_coin_old],coin_positions_old[1][closest_coin_old])
+
+    # Get distance to closest coin
+    distance_to_closest_coin_old = np.abs(closest_coin_x_y[0] - agent_pos_old[0]) + np.abs(closest_coin_x_y[1] - agent_pos_old[1])
+    distance_to_closest_coin_new = np.abs(closest_coin_x_y[0] - agent_pos_new[0]) + np.abs(closest_coin_x_y[1] - agent_pos_new[1])
+    
+    # Check if agent is closer to coin
+    if distance_to_closest_coin_new < distance_to_closest_coin_old:
+        events.append(CLOSER_TO_COIN)
+    else:
+        events.append(FURTHER_FROM_COIN)
+    
+    
+    
+    """
+    
+    
+    
+    
+    
+    
     check_custom_events(self,events,action, feature_state_old, feature_state_new)
     
     self.values.add_event(events)
@@ -284,8 +336,12 @@ def calculate_events_and_reward(self, old_game_state: dict, self_action: str, ne
         
     
     
+    # flatten feature state again
+    feature_state_old = feature_state_old.flatten()
+    feature_state_new = feature_state_new.flatten()
     
     
+
     self.values.push_data((feature_state_old,action,reward/100.0,feature_state_new,prob_a,done))
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
@@ -305,7 +361,9 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     :param new_game_state: The state the agent is in now.
     :param events: The events that occurred when going from  `old_game_state` to `new_game_state`
     """
-    
+    if self.RANDOM_ACTION:
+        events.append("RANDOM_ACTION")
+        self.values.random_actions += 1
     calculate_events_and_reward(self, old_game_state, self_action, new_game_state, events)
     #self.values.add_reward(reward)
     
@@ -356,7 +414,11 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     
     # 
     train_steps = TRAIN_EVERY_N_STEPS
+    #train_steps = 1 # train after each round
+    if TRAIN_EVERY_END_OF_ROUND:
+        train_steps = 1
     if self.values.global_step % train_steps == 0:
+
         train_net(self)
         
         # Log and reset values
@@ -365,9 +427,13 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         # Reset values defined in setup
         self.bomb_history = deque([], 5)
         self.coordinate_history = deque([], 20)
-        # Store the model
-        with open(HYPER.MODEL_NAME, "wb") as file:
-            pickle.dump(self.model, file)
+        # Store the model if it is the best one
+        agent_score = last_game_state["self"][1]
+        if agent_score > self.best_score:
+            self.best_score = agent_score
+            self.logger.info(f'Saving best model with score {agent_score}')
+            with open(HYPER.MODEL_NAME, "wb") as file:
+                pickle.dump(self.model, file)
             
     #clear log file
     with open("logs/PPOLD.log", "w") as file:
@@ -423,17 +489,15 @@ def check_custom_events(self, events: List[str],action, features_old, features_n
     
     nearest_coin_distance_old, is_dead_end_old, bomb_threat_old, time_to_explode_old,\
         can_drop_bomb_old, is_next_to_opponent_old, is_on_bomb_old, should_drob_bomb_old,\
-            escape_route_available_old, direction_to_target_old_UP, direction_to_target_old_DOWN,\
-                direction_to_target_old_LEFT, direction_to_target_old_RIGHT, is_in_loop_old, nearest_bomb_distance_old,\
+            escape_route_available_old, is_in_loop_old, nearest_bomb_distance_old,\
                     blast_count_up_old, blast_count_down_old, blast_count_left_old,blast_count_right_old, \
-                        danger_level_up_old, danger_level_down_old, danger_level_left_old, danger_level_right_old, *local_map_old = features_old
+                        danger_level_up_old, danger_level_down_old, danger_level_left_old, danger_level_right_old,direction_to_coin_old,*free_directions_old = features_old
     
     nearest_coin_distance_new, is_dead_end_new, bomb_threat_new, time_to_explode_new,\
         can_drop_bomb_new, is_next_to_opponent_new, is_on_bomb_new, should_drob_bomb_new,\
-            escape_route_available_new, direction_to_target_new_UP, direction_to_target_new_DOWN,\
-                direction_to_target_new_LEFT, direction_to_target_new_RIGHT, is_in_loop_new, nearest_bomb_distance_new,\
+            escape_route_available_new, is_in_loop_new, nearest_bomb_distance_new,\
                     blast_count_up_new, blast_count_down_new, blast_count_left_new,blast_count_right_new, \
-                        danger_level_up_new, danger_level_down_new, danger_level_left_new, danger_level_right_new,*local_map_new = features_new
+                        danger_level_up_new, danger_level_down_new, danger_level_left_new, danger_level_right_new,direction_to_coin_new, *free_directions_new = features_new
                 
                 
     
@@ -450,7 +514,7 @@ def check_custom_events(self, events: List[str],action, features_old, features_n
         events.append(ESCAPABLE_BOMB)
     # Check if bomb destroys crate
 
-
+    '''
     # Check if Agent took direction towards target: direction_to_target = [UP, DOWN, LEFT, RIGHT]
     if (action == "UP" and direction_to_target_old_UP == 1) or (action == "DOWN" and direction_to_target_old_DOWN == 1)\
         or (action == "LEFT" and direction_to_target_old_LEFT == 1) or (action == "RIGHT" and direction_to_target_old_RIGHT == 1):
@@ -462,6 +526,7 @@ def check_custom_events(self, events: List[str],action, features_old, features_n
         _sum = direction_to_target_old_UP + direction_to_target_old_DOWN + direction_to_target_old_LEFT + direction_to_target_old_RIGHT
         if _sum != 0:
             events.append(TOOK_DIRECTION_AWAY_FROM_TARGET) # TODO: check if this is correct
+    '''
     
     # Check if Agent registered bomb threat and escaped
     if bomb_threat_old and not bomb_threat_new:
@@ -474,10 +539,11 @@ def check_custom_events(self, events: List[str],action, features_old, features_n
         events.append(GOING_AWAY_FROM_BOMB)
     
     # TODO: check if this works,
-    if is_in_loop_new:
+    
+    coordinate_old = self.values.coordinate_history[-1]
+    if coordinate_old in self.values.coordinate_history:
         events.append(IS_IN_LOOP)
-    if not is_in_loop_new and is_in_loop_old:
-        events.append(GOT_OUT_OF_LOOP)
+
      
      #TODO CHECK THIS
         
@@ -655,36 +721,40 @@ def reward_from_events(self, events: List[str]) -> int:
     coin_rewards_loot_crate = {
         e.COIN_COLLECTED: 20,
         #FURTHER_FROM_COIN:-10,
-        #CLOSER_TO_COIN: 7,
+        #CLOSER_TO_COIN: 19,
+        #FURTHER_FROM_COIN:-10,
         e.INVALID_ACTION:-10,
         e.CRATE_DESTROYED: 20,
         e.COIN_FOUND: 15,
         WAITED_TOO_LONG:-10,
-        DROPPED_BOMB_WHEN_SHOULDNT:-50,
+        DROPPED_BOMB_WHEN_SHOULDNT:-25,
         DIDNT_DROP_BOMB_WHEN_SHOULD:-25,
-        #DROPPED_BOMB_WHEN_SHOULD_AND_MOVED: 20,
-        #DROPPED_BOMB_WHEN_SHOULD_BUT_STAYED: -5,
+        DROPPED_BOMB_WHEN_SHOULD_AND_MOVED: 20,
+        DROPPED_BOMB_WHEN_SHOULD_BUT_STAYED: -5,
         e.KILLED_SELF:-25,
         ESCAPED_BOMB: 28,
         GOING_TOWARDS_BOMB:-5,
         GOING_AWAY_FROM_BOMB: 10,
-        TOOK_DIRECTION_TOWARDS_TARGET: 20,
-        TOOK_DIRECTION_AWAY_FROM_TARGET: -25,
+        #TOOK_DIRECTION_TOWARDS_TARGET: 20,
+        #TOOK_DIRECTION_AWAY_FROM_TARGET: -25,
         IS_IN_LOOP: -10,
-        GOT_OUT_OF_LOOP: 10,#not sure if this is working
+        #GOT_OUT_OF_LOOP: 10,#not sure if this is working
         IN_BLAST_RADIUS:-50,
         BLAST_COUNT_UP_DECREASED: 25,
         BLAST_COUNT_DOWN_DECREASED: 25,
         BLAST_COUNT_LEFT_DECREASED: 25,
         BLAST_COUNT_RIGHT_DECREASED: 25,
-        WENT_INTO_BOMB_RADIUS_AND_DIED: -55,
+        WENT_INTO_BOMB_RADIUS_AND_DIED: -25,
         DROPPED_BOMB_AND_COLLECTED_COIN_MEANWHILE: 25,
         e.SURVIVED_ROUND:150,
     }
     
+    # make this a global dict
+    
+
     
     coin_rewards = coin_rewards_loot_crate
-    reward_sum = 0
+    reward_sum = -5
     for event in events:
         if event in coin_rewards:
             reward_sum += coin_rewards[event]

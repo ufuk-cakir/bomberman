@@ -15,6 +15,43 @@ ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 
 from collections import deque
 
+
+CONTINUE_TRAINING = None
+
+
+# Ask from terminal wheter to continue training or not
+CONTINUE_TRAINING = input("Continue training? (y/n)")
+if CONTINUE_TRAINING == "y":
+    CONTINUE_TRAINING = True
+
+else:
+    CONTINUE_TRAINING = False
+    
+LOG_WANDB = input("Log to wandb? (y/n)")
+if LOG_WANDB == "y":
+    LOG_WANDB = True
+else:
+    LOG_WANDB = False
+    
+debug_events = input("Debug events while training? (y/n)")
+if debug_events == "y":
+    DEBUG_EVENTS = True
+else:
+    DEBUG_EVENTS = False
+   
+log_to_file = input("Log to file? (y/n)")
+if log_to_file == "y":
+    LOG_TO_FILE = True
+else:
+    LOG_TO_FILE = False
+
+
+log_features = input("Log features? (y/n)")
+if log_features == "y":
+    log_features = True
+else:
+    log_features = False
+
 def setup(self):
     """
     Setup your code. This is called once when loading each agent.
@@ -29,43 +66,6 @@ def setup(self):
 
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
-
-    if self.train:
-        CONTINUE_TRAINING = None
-
-
-        # Ask from terminal wheter to continue training or not
-        CONTINUE_TRAINING = input("Continue training? (y/n)")
-        if CONTINUE_TRAINING == "y":
-            CONTINUE_TRAINING = True
-
-        else:
-            CONTINUE_TRAINING = False
-            
-        LOG_WANDB = input("Log to wandb? (y/n)")
-        if LOG_WANDB == "y":
-            LOG_WANDB = True
-        else:
-            LOG_WANDB = False
-            
-        debug_events = input("Debug events while training? (y/n)")
-        if debug_events == "y":
-            DEBUG_EVENTS = True
-        else:
-            DEBUG_EVENTS = False
-        
-        log_to_file = input("Log to file? (y/n)")
-        if log_to_file == "y":
-            LOG_TO_FILE = True
-        else:
-            LOG_TO_FILE = False
-
-
-        log_features = input("Log features? (y/n)")
-        if log_features == "y":
-            log_features = True
-        else:
-            log_features = False
     self.steps_done = 0
     self.bomb_history = deque([], 5)
     self.coordinate_history = deque([], 20)
@@ -114,6 +114,7 @@ def act(self, game_state: dict) -> str:
             model_querry = self.model.policy_net(s).max(1)[1].view(1, 1)
             return ACTIONS[model_querry]
     else:
+        if log_features: self.logger.info("Random Action")
         return np.random.choice(ACTIONS)
 
     
@@ -155,6 +156,14 @@ def state_to_features(self,game_state: dict) -> np.array:
     terrain_channel = arena.T # Transpose to get correct orientation
     for (x, y), countdown in game_state['bombs']:
         bomb_channel[x, y] = countdown
+        # go through all directions and fill in bomb channel
+        for direction in [(1,0),(-1,0),(0,1),(0,-1)]:
+            for i in range(1,4):
+                if 0 <= x + i*direction[0] < width and 0 <= y + i*direction[1] < height:
+                    if arena[x + i*direction[0], y + i*direction[1]] == -1:
+                        break
+                    else:
+                        bomb_channel[x + i*direction[0], y + i*direction[1]] = countdown
 
     # Fill in explosion data
     explosion_channel = game_state['explosion_map'].T
@@ -173,7 +182,6 @@ def state_to_features(self,game_state: dict) -> np.array:
 
     # Stack all channels together
     stacked_channels = np.stack([terrain_channel, bomb_channel, explosion_channel, coin_channel, self_channel, enemy_channel])
-    print(coin_channel)
     return stacked_channels
         
     
