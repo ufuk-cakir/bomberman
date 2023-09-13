@@ -95,6 +95,8 @@ class Values:
         
         
         self.logger.info(f'Event stats:') if log_to_file else None
+        if WANDB_FLAG:
+            wandb.log({"global_step": self.global_step})
         # Convert list of tuples to list of strings
         event_strings = [item for tup in self.event_history for item in tup]
 
@@ -431,9 +433,9 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         agent_score = last_game_state["self"][1]
         if agent_score > self.best_score:
             self.best_score = agent_score
-            self.logger.info(f'Saving best model with score {agent_score}')
-            with open(HYPER.MODEL_NAME, "wb") as file:
-                pickle.dump(self.model, file)
+            self.logger.info(f'best score {agent_score}')
+        with open(HYPER.MODEL_NAME, "wb") as file:
+            pickle.dump(self.model, file)
             
     #clear log file
     with open("logs/PPOLD.log", "w") as file:
@@ -487,17 +489,17 @@ def check_custom_events(self, events: List[str],action, features_old, features_n
     if action == "BOMB":
         self.values.frames_after_bomb = 0
     
-    nearest_coin_distance_old, is_dead_end_old, bomb_threat_old, time_to_explode_old,\
+    nearest_coin_distance_old,coin_angle_old, direction_coin_old, bomb_threat_old, time_to_explode_old,\
         can_drop_bomb_old, is_next_to_opponent_old, is_on_bomb_old, should_drob_bomb_old,\
-            escape_route_available_old, is_in_loop_old, nearest_bomb_distance_old,\
+             is_in_loop_old, nearest_bomb_distance_old,\
                     blast_count_up_old, blast_count_down_old, blast_count_left_old,blast_count_right_old, \
-                        danger_level_up_old, danger_level_down_old, danger_level_left_old, danger_level_right_old,direction_to_coin_old,*free_directions_old = features_old
+                        danger_level_up_old, danger_level_down_old, danger_level_left_old, danger_level_right_old,*local_view_old = features_old
     
-    nearest_coin_distance_new, is_dead_end_new, bomb_threat_new, time_to_explode_new,\
+    nearest_coin_distance_new, coin_angle_new, direction_coin_new, bomb_threat_new, time_to_explode_new,\
         can_drop_bomb_new, is_next_to_opponent_new, is_on_bomb_new, should_drob_bomb_new,\
-            escape_route_available_new, is_in_loop_new, nearest_bomb_distance_new,\
+             is_in_loop_new, nearest_bomb_distance_new,\
                     blast_count_up_new, blast_count_down_new, blast_count_left_new,blast_count_right_new, \
-                        danger_level_up_new, danger_level_down_new, danger_level_left_new, danger_level_right_new,direction_to_coin_new, *free_directions_new = features_new
+                        danger_level_up_new, danger_level_down_new, danger_level_left_new, danger_level_right_new ,*local_view_new= features_new
                 
                 
     
@@ -727,7 +729,7 @@ def reward_from_events(self, events: List[str]) -> int:
         e.CRATE_DESTROYED: 20,
         e.COIN_FOUND: 15,
         WAITED_TOO_LONG:-10,
-        DROPPED_BOMB_WHEN_SHOULDNT:-25,
+        DROPPED_BOMB_WHEN_SHOULDNT:-150,
         DIDNT_DROP_BOMB_WHEN_SHOULD:-25,
         DROPPED_BOMB_WHEN_SHOULD_AND_MOVED: 20,
         DROPPED_BOMB_WHEN_SHOULD_BUT_STAYED: -5,
@@ -755,6 +757,7 @@ def reward_from_events(self, events: List[str]) -> int:
     
     coin_rewards = coin_rewards_loot_crate
     reward_sum = -5
+    reward_sum = -self.values.global_step/100
     for event in events:
         if event in coin_rewards:
             reward_sum += coin_rewards[event]

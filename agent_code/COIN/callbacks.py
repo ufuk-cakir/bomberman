@@ -535,51 +535,31 @@ def state_to_features(self,game_state: dict) -> np.array:
     
     
     # Combining all features into a single list
-    features = [
-        nearest_coin_distance, is_dead_end, bomb_threat, time_to_explode,
-        can_drop_bomb, is_next_to_opponent, is_on_bomb, should_drop_bomb,
-        escape_route_available
-    ] + [is_in_loop, nearest_bomb_distance] + blast_in_direction + danger_level #ignore_others_timer_normalized]
     
     #give flattened array if local map as features, go three tiles in each direction
-    '''
+    
     # Get angle to nearest coin
     if len(coins) > 0:
         nearest_coin = coins[np.argmin(distances_to_coins)]
         angle_to_nearest_coin = np.arctan2(nearest_coin[1] - y, nearest_coin[0] - x)
-        features.append(angle_to_nearest_coin)
+       
     else:
-        features.append(0)
-    '''
+        angle_to_nearest_coin = -1
+    
     
     # Add direction to nearest coin: 0 = UP, 1 = DOWN, 2 = LEFT, 3 = RIGHT
     if len(coins) > 0:
         nearest_coin = coins[np.argmin(distances_to_coins)]
-        if nearest_coin[1] < y: features.append(0)
-        elif nearest_coin[1] > y: features.append(1)
-        elif nearest_coin[0] < x: features.append(2)
-        elif nearest_coin[0] > x: features.append(3)
-        else: features.append(-1)
+        if nearest_coin[1] < y: direction_to_coin = 0
+        elif nearest_coin[1] > y: direction_to_coin = 1
+        elif nearest_coin[0] < x: direction_to_coin = 2
+        elif nearest_coin[0] > x: direction_to_coin = 3
+        else: direction_to_coin = -1
         
     else:
-        features.append(-1)
+        direction_to_coin = -1
         
      
-    
-    
-            
-    
-    
-    
-    
-    
-    # check which directions are free
-    directions = [(0, -1), (0, 1), (-1, 0), (1, 0)]  # [UP, DOWN, LEFT, RIGHT]
-    free_directions = [0, 0, 0, 0]
-    for i, (dx, dy) in enumerate(directions):
-        if arena[x + dx, y + dy] == 0:
-            free_directions[i] = 1
-    features = features + free_directions
     
     
     # local map 
@@ -616,58 +596,19 @@ def state_to_features(self,game_state: dict) -> np.array:
      
     
     
-    '''
-    # add coins
-    for (cx, cy) in coins:
-        if (cx-x) < 3 and (cy-y) < 3:
-            local[cx-x+2, cy-y+2] = 1.5
     
-    # add free tiles
-    for (fx, fy) in free_spaces:
-        if (fx-x) < 3 and (fy-y) < 3:
-            local[fx-x+2, fy-y+2] = 0   
-            
-    # add walls
-    for (wx, wy) in walls:
-        if (wx-x) < 3 and (wy-y) < 3:
-            local[wx-x+2, wy-y+2] = -2.5
-    
-    # add bombs
-    for (bx, by), t in bombs:
-        if (bx-x) < 3 and (by-y) < 3:
-            local[bx-x+2, by-y+2] = -t - 0.25 # negative values to emphasize danger
-            
-    # add crates
-    for (cx, cy) in crates:
-        if (cx-x) < 3 and (cy-y) < 3:
-            local[cx-x+2, cy-y+2] = 1
-            
-    # add others
-    for (ox, oy) in others:
-        if (ox-x) < 3 and (oy-y) < 3:
-            local[ox-x+2, oy-y+2] = -4.5
-    
-    # add explosion map
-    for (ex, ey) in explosion_coords:
-        if (ex-x) < 3 and (ey-y) < 3:
-            local[ex-x+2, ey-y+2] = -3.5 # negative values to emphasize danger
-    
-    # add blast map
-    for (bx, by) in blast_coords:
-        if (bx-x) < 3 and (by-y) < 3:
-            local[bx-x+2, by-y+2] = -2.5
-    '''
- 
     # Start with agent position
     local[2,2] = 5 # agent position
+    local = local.flatten().tolist()
     
 
     
-    
-    
-       
-    # add to features
-    features = features + local.flatten().tolist()
+    features = [
+        nearest_coin_distance, angle_to_nearest_coin,direction_to_coin, bomb_threat, time_to_explode,
+        can_drop_bomb, is_next_to_opponent, is_on_bomb, should_drop_bomb,
+    ] + [is_in_loop, nearest_bomb_distance] + blast_in_direction + danger_level + local #ignore_others_timer_normalized]
+
+
     
     return(np.array(features))
 
