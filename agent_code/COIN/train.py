@@ -35,7 +35,6 @@ import settings
 log_to_file = LOG_TO_FILE
 
 train_in_round = False 
-TRAIN_EVERY_N_STEPS = -1 # if -1 then train after each round
 TRAIN_EVERY_N_STEPS = 30
 TRAIN_EVERY_END_OF_ROUND = True
 class Values:
@@ -723,12 +722,12 @@ def reward_from_events(self, events: List[str]) -> int:
     coin_rewards_loot_crate = {
         e.COIN_COLLECTED: 20,
         #FURTHER_FROM_COIN:-10,
-        #CLOSER_TO_COIN: 19,
+        CLOSER_TO_COIN: 19,
         #FURTHER_FROM_COIN:-10,
         e.INVALID_ACTION:-10,
         e.CRATE_DESTROYED: 20,
         e.COIN_FOUND: 15,
-        WAITED_TOO_LONG:-10,
+        WAITED_TOO_LONG:-20,
         DROPPED_BOMB_WHEN_SHOULDNT:-150,
         DIDNT_DROP_BOMB_WHEN_SHOULD:-25,
         DROPPED_BOMB_WHEN_SHOULD_AND_MOVED: 20,
