@@ -191,7 +191,7 @@ def setup_training(self):
         wandb.watch(self.model)
     #self.global_step = 0
 
-    #self.loss_history = []
+    self.loss_history = []
     #self.reward_history = []
     self.optimizer = torch.optim.Adam(self.model.parameters(), lr=HYPER.learning_rate)
     self.invalid_actions = 0
@@ -223,7 +223,9 @@ def train_net(self):
             advantage = torch.tensor(advantage_lst, dtype=torch.float)
 
             pi = self.model.pi(s, softmax_dim=1)
-            pi_a = pi.gather(1,a)
+            print(np.shape(a))
+            print(np.shape(pi))
+            pi_a = pi.gather(0,a)
             ratio = torch.exp(torch.log(pi_a) - torch.log(prob_a))  # a/b == exp(log(a)-log(b))
 
             surr1 = ratio * advantage
@@ -233,7 +235,7 @@ def train_net(self):
             self.optimizer.zero_grad()
             loss.mean().backward()
             
-            #self.loss_history.append(loss.mean().item())
+            self.loss_history.append(loss.mean().item())
             self.optimizer.step()  
             self.values.add_loss(loss.mean().item())
         

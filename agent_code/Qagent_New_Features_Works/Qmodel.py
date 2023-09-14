@@ -37,8 +37,8 @@ Hyperparameters = namedtuple("Hyperparameters", [
 
 
 
-SIZE_OF_STATE_VECTOR = 360
 
+SIZE_OF_STATE_VECTOR = 23
 
 HYPER = Hyperparameters(
     BATCH_SIZE=8,
@@ -47,12 +47,11 @@ HYPER = Hyperparameters(
     EPS_END=0.05,#0.05,
     EPS_DECAY= 1000, #1000,
     TAU=0.005,
-    LR=2e-6,
+    LR=5e-6,
     N_ACTIONS=len(ACTIONS),
-    N_FEATURES=SIZE_OF_STATE_VECTOR,
+    N_FEATURES= SIZE_OF_STATE_VECTOR,
     MLP_HIDDEN_SIZE=128,
-    MLP_NUM_LAYERS=2,
-)
+    MLP_NUM_LAYERS=2,)
 
 import wandb
 

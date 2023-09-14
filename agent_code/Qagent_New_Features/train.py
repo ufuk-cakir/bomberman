@@ -35,7 +35,7 @@ def setup_training(self):
     self.memory = Memory(10000)
     self.score = 0
     if LOG_WANDB:
-        wandb.init(project="bomberman-qagent", name="training-run-1")
+        wandb.init(project="bomberman-qagent", name="training-reduced-features")
         wandb.config.update(HYPER._asdict())
     self.reward_history = []
     self.loss_history = []

@@ -20,9 +20,9 @@ class HYPER:
     EPS_START     = 0.05# 0.9 # Epsilon greedy policy if agents converges to suboptimal policy, increase. If agent is too random, decrease
     EPS_END       = 0.05#0.05 # Epsilon greedy policy if agents converges to suboptimal policy, increase. If agent is too random, decrease
     EPS_DECAY     = 4000 # Decay rate of epsilon greedy policy, if agent converges to suboptimal policy, increase. If agent is too random, decrease
-    N_EPOCH       = 3#4 # Number of times we update the network on same batch of data
-    UPDATE_INTERVAL     = 30
-    HIDDEN_SIZE = 50
+    N_EPOCH       = 4#4 # Number of times we update the network on same batch of data
+    UPDATE_INTERVAL     = 20
+    HIDDEN_SIZE = 128
     HIDDEN_LAYER = 2#6
     ACTIVATION_FUNCTION = nn.Tanh() #ReLu, LeakyReLu, 
     MODEL_NAME = "coin_collector_new.pt"

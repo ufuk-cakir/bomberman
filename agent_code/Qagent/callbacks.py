@@ -22,6 +22,20 @@ import settings
 
 VIEW_SIZE: int = 7
 
+# Ask from terminal wheter to continue training or not
+CONTINUE_TRAINING = input("Continue training? (y/n)")
+if CONTINUE_TRAINING == "y":
+    CONTINUE_TRAINING = True
+
+else:
+    CONTINUE_TRAINING = False
+        
+LOG_WANDB = input("Log to wandb? (y/n)")
+if LOG_WANDB == "y":
+    LOG_WANDB = True
+else:
+    LOG_WANDB = False
+
 
 def get_object_map(object_xy_list):
     object_map = np.zeros((settings.COLS, settings.ROWS))
@@ -118,7 +132,7 @@ def setup(self):
     
     
     
-    if self.train or not os.path.isfile("policy_net.pt"):
+    if not CONTINUE_TRAINING or not os.path.isfile("policy_net.pt"):
         self.logger.info("Setting up model from scratch.")
         self.policy_net = QNet(HYPER.N_FEATURES, HYPER.N_ACTIONS).to(self.device)
         self.target_net = QNet(HYPER.N_FEATURES, HYPER.N_ACTIONS).to(self.device)
@@ -150,10 +164,12 @@ def act(self, game_state: dict) -> str:
      
     # Epsilon greedy policy
     sample = random.random() # sample from uniform distribution
-    eps_threshold = HYPER.EPS_END + (HYPER.EPS_START - HYPER.EPS_END) * \
+    if not self.train:
+        eps_threshold = 0
+    else: 
+        eps_threshold = HYPER.EPS_END + (HYPER.EPS_START - HYPER.EPS_END) * \
         math.exp(-1. * self.steps_done / HYPER.EPS_DECAY)
     self.steps_done += 1
-    
     # If sample is smaller than epsilon, choose random action
     if sample < eps_threshold:
         self.logger.debug("Choosing action purely at random.")
