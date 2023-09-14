@@ -25,7 +25,7 @@ class HYPER:
     HIDDEN_SIZE = 64
     HIDDEN_LAYER = 3#6
     ACTIVATION_FUNCTION = nn.Tanh() #ReLu, LeakyReLu, 
-    MODEL_NAME = "coin_collector_new.pt"
+    MODEL_NAME = "coin_collector_new2.pt"
     
 
 

@@ -433,8 +433,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         if agent_score > self.best_score:
             self.best_score = agent_score
             self.logger.info(f'best score {agent_score}')
-        with open(HYPER.MODEL_NAME, "wb") as file:
-            pickle.dump(self.model, file)
+        torch.save(self.model.state_dict(), HYPER.MODEL_NAME)
             
     #clear log file
     with open("logs/PPOLD.log", "w") as file:
