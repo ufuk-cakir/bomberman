@@ -86,11 +86,12 @@ def setup(self):
     self.bomb_history = deque([], 5)
     self.coordinate_history = deque([], 20)
     self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print("device:",self.device)
     if self.train or not os.path.isfile(HYPER.MODEL_NAME):
         if CONTINUE_TRAINING:
             self.logger.info("Loading model from saved state.")
-            with open(HYPER.MODEL_NAME, "rb") as file:
-                self.model = pickle.load(file)
+            self.model = PPO(NUMBER_OF_POSSIBLE_ACTIONS=len(ACTIONS), SIZE_OF_STATE_VECTOR=HYPER.SIZE_OF_STATE_VECTOR)
+            self.model.load_state_dict(torch.load(HYPER.MODEL_NAME))
             return
         else:
             self.logger.info("Setting up model from scratch.")
@@ -100,9 +101,11 @@ def setup(self):
             #self.model = weights / weights.sum()
             self.model = PPO(NUMBER_OF_POSSIBLE_ACTIONS=len(ACTIONS), SIZE_OF_STATE_VECTOR=HYPER.SIZE_OF_STATE_VECTOR)
     else:
-        self.logger.info("Loading model from saved state.")
+        self.logger.info("Loading model from saved state. No training will be performed.")
         with open(HYPER.MODEL_NAME, "rb") as file:
-            self.model = pickle.load(file)
+            #self.model = pickle.load(file)
+            self.model = PPO(NUMBER_OF_POSSIBLE_ACTIONS=len(ACTIONS), SIZE_OF_STATE_VECTOR=HYPER.SIZE_OF_STATE_VECTOR)
+            self.model.load_state_dict(torch.load(HYPER.MODEL_NAME, map_location=self.device))
 
 
 def act(self, game_state: dict) -> str:
