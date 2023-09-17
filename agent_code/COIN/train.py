@@ -35,7 +35,7 @@ import settings
 log_to_file = LOG_TO_FILE
 
 train_in_round = False 
-TRAIN_EVERY_N_STEPS = 30
+TRAIN_EVERY_N_STEPS = 400
 TRAIN_EVERY_END_OF_ROUND = True
 class Values:
     ''' Values to keep track of each game and reset after each game'''
@@ -732,9 +732,9 @@ def reward_from_events(self, events: List[str]) -> int:
     }
     coin_rewards_loot_crate = {
         e.COIN_COLLECTED: 20,
-        #FURTHER_FROM_COIN:-10,
-        CLOSER_TO_COIN: 19,
-        #FURTHER_FROM_COIN:-10,
+        FURTHER_FROM_COIN:-10,
+        CLOSER_TO_COIN: 20,
+        FURTHER_FROM_COIN:-10,
         e.INVALID_ACTION:-10,
         e.CRATE_DESTROYED: 20,
         e.COIN_FOUND: 15,
@@ -743,22 +743,22 @@ def reward_from_events(self, events: List[str]) -> int:
         DIDNT_DROP_BOMB_WHEN_SHOULD:-25,
         DROPPED_BOMB_WHEN_SHOULD_AND_MOVED: 20,
         DROPPED_BOMB_WHEN_SHOULD_BUT_STAYED: -5,
-        e.KILLED_SELF:-25,
+        e.KILLED_SELF:-50,
         ESCAPED_BOMB: 28,
         GOING_TOWARDS_BOMB:-25,
         GOING_AWAY_FROM_BOMB: 15,
         #TOOK_DIRECTION_TOWARDS_TARGET: 20,
         #TOOK_DIRECTION_AWAY_FROM_TARGET: -25,
         IS_IN_LOOP: -10,
-        #GOT_OUT_OF_LOOP: 10,#not sure if this is working
+        GOT_OUT_OF_LOOP: 10,#not sure if this is working
         IN_BLAST_RADIUS:-50,
         BLAST_COUNT_UP_DECREASED: 25,
         BLAST_COUNT_DOWN_DECREASED: 25,
         BLAST_COUNT_LEFT_DECREASED: 25,
         BLAST_COUNT_RIGHT_DECREASED: 25,
         WENT_INTO_BOMB_RADIUS_AND_DIED: -25,
-        DROPPED_BOMB_AND_COLLECTED_COIN_MEANWHILE: 25,
-        e.SURVIVED_ROUND:150,
+        #DROPPED_BOMB_AND_COLLECTED_COIN_MEANWHILE: 25,
+        #e.SURVIVED_ROUND:150,
     }
     
     # make this a global dict
@@ -766,8 +766,7 @@ def reward_from_events(self, events: List[str]) -> int:
 
     
     coin_rewards = coin_rewards_loot_crate
-    reward_sum = -5
-    reward_sum = -self.values.global_step/100
+    reward_sum = 0
     for event in events:
         if event in coin_rewards:
             reward_sum += coin_rewards[event]

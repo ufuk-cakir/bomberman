@@ -61,11 +61,13 @@ if GET_INPUT:
 
 else:
     CONTINUE_TRAINING = False
-    LOG_WANDB = False
+    LOG_WANDB = True
     DEBUG_EVENTS = False
     LOG_TO_FILE = False
     log_features = False
     
+    
+
 from collections import deque
 
 def setup(self):
@@ -87,6 +89,12 @@ def setup(self):
     self.coordinate_history = deque([], 20)
     self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("device:",self.device)
+    self.logger.info("CONTINUE_TRAINING: " + str(CONTINUE_TRAINING))
+    self.logger.info("LOG_WANDB: " + str(LOG_WANDB))
+    self.logger.info("DEBUG_EVENTS: " + str(DEBUG_EVENTS))
+    self.logger.info("LOG_TO_FILE: " + str(LOG_TO_FILE))
+    self.logger.info("log_features: " + str(log_features))
+    self.logger.info("device: " + str(self.device))
     if self.train or not os.path.isfile(HYPER.MODEL_NAME):
         if CONTINUE_TRAINING:
             self.logger.info("Loading model from saved state.")
