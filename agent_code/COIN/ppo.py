@@ -12,7 +12,7 @@ import numpy as np
 
 class HYPER:
     LOCAL_VIEW_SIZE = 7
-    SIZE_OF_STATE_VECTOR = 23
+    SIZE_OF_STATE_VECTOR = 29
     learning_rate = 0.0005#0.0005
     gamma         = 0.7#0.98 # discount factor control how much importance we give to future rewards. lower gamma -> short sighted, higher gamma -> far sighted
     lmbda         = 0.95 # Used for GAE controls how much importance we give to future rewards. lower lambda -> short sighted, higher lambda -> far sighted

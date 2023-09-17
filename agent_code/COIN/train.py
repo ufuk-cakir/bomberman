@@ -418,14 +418,14 @@ def check_custom_events(self, events: List[str],action, features_old, features_n
             escape_route_available_old, direction_to_target_old_UP, direction_to_target_old_DOWN,\
                 direction_to_target_old_LEFT, direction_to_target_old_RIGHT, is_in_loop_old, nearest_bomb_distance_old,\
                     blast_count_up_old, blast_count_down_old, blast_count_left_old,blast_count_right_old, \
-                        danger_level_up_old, danger_level_down_old, danger_level_left_old, danger_level_right_old = features_old
+                        danger_level_up_old, danger_level_down_old, danger_level_left_old, danger_level_right_old, *others_old = features_old
     
     nearest_coin_distance_new, is_dead_end_new, bomb_threat_new, time_to_explode_new,\
         can_drop_bomb_new, is_next_to_opponent_new, is_on_bomb_new, should_drob_bomb_new,\
             escape_route_available_new, direction_to_target_new_UP, direction_to_target_new_DOWN,\
                 direction_to_target_new_LEFT, direction_to_target_new_RIGHT, is_in_loop_new, nearest_bomb_distance_new,\
                     blast_count_up_new, blast_count_down_new, blast_count_left_new,blast_count_right_new, \
-                        danger_level_up_new, danger_level_down_new, danger_level_left_new, danger_level_right_new = features_new
+                        danger_level_up_new, danger_level_down_new, danger_level_left_new, danger_level_right_new, *other_new = features_new
                 
                 
     

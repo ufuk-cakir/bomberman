@@ -467,12 +467,50 @@ def state_to_features(self,game_state: dict) -> np.array:
     # Danger level of each direction
     danger_level = get_danger_level((x, y), explosion_map, arena)
     
+    nearest_opponent_distance = -1
+    if len(others) > 0:
+        nearest_opponent_distance = min(abs(ox-x) + abs(oy-y) for (ox, oy) in others)
+    
+    nearest_oppnent_coords = (x, y)
+    if len(others) > 0:
+        nearest_oppnent_coords = others[np.argmin([abs(ox-x) + abs(oy-y) for (ox, oy) in others])]
+    
+    opponent_target_direction  = look_for_targets(arena == 0, (x, y), [nearest_oppnent_coords])
+
+    direction_to_opponent = [0, 0, 0, 0]  # [UP, DOWN, LEFT, RIGHT]
+    if opponent_target_direction:
+        if opponent_target_direction == (x, y-1): direction_to_opponent[0] = 1
+        elif opponent_target_direction == (x, y+1): direction_to_opponent[1] = 1
+        elif opponent_target_direction == (x-1, y): direction_to_opponent[2] = 1
+        elif opponent_target_direction == (x+1, y): direction_to_opponent[3] = 1
+        
+    # Flag if nearest opponent can drop bomb
+    
+    nearest_opponent_can_drop_bomb = -1
+    
+    if len(others) > 0:
+        for o in game_state["others"]:
+            _, _, bombs_left, coord= o 
+            if coord == nearest_oppnent_coords:
+                nearest_opponent_can_drop_bomb = bombs_left
+                break
+            
+            
+        
+    
+        
+    
+
+        
+        
+
+    
     # Combining all features into a single list
     features = [
         nearest_coin_distance, is_dead_end, bomb_threat, time_to_explode,
         can_drop_bomb, is_next_to_opponent, is_on_bomb, should_drop_bomb,
         escape_route_available
-    ] + direction_to_target + [is_in_loop, nearest_bomb_distance] + blast_in_direction + danger_level #ignore_others_timer_normalized]
+    ] + direction_to_target + [is_in_loop, nearest_bomb_distance] + blast_in_direction + danger_level + [nearest_opponent_distance] + direction_to_opponent + [nearest_opponent_can_drop_bomb]
     
     
     if 0:
