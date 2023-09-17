@@ -480,6 +480,8 @@ DROPPED_BOMB_AND_COLLECTED_COIN_MEANWHILE = "DROPPED_BOMB_AND_COLLECTED_COIN_MEA
 
 
 
+
+
 def check_custom_events(self, events: List[str],action, features_old, features_new):
     # Check if agent is closer to coin
     self.values.frames_after_bomb += 1
@@ -513,6 +515,8 @@ def check_custom_events(self, events: List[str],action, features_old, features_n
     if is_on_bomb_new and not is_on_bomb_old:
         events.append(ESCAPABLE_BOMB)
     # Check if bomb destroys crate
+    
+   
 
     '''
     # Check if Agent took direction towards target: direction_to_target = [UP, DOWN, LEFT, RIGHT]
@@ -733,8 +737,8 @@ def reward_from_events(self, events: List[str]) -> int:
         DROPPED_BOMB_WHEN_SHOULD_BUT_STAYED: -5,
         e.KILLED_SELF:-25,
         ESCAPED_BOMB: 28,
-        GOING_TOWARDS_BOMB:-5,
-        GOING_AWAY_FROM_BOMB: 10,
+        GOING_TOWARDS_BOMB:-25,
+        GOING_AWAY_FROM_BOMB: 15,
         #TOOK_DIRECTION_TOWARDS_TARGET: 20,
         #TOOK_DIRECTION_AWAY_FROM_TARGET: -25,
         IS_IN_LOOP: -10,

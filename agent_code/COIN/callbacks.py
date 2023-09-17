@@ -248,8 +248,8 @@ def state_to_features(self,game_state: dict) -> np.array:
     explosion_map = game_state['explosion_map'] 
     
     explosion_coords = [(x,y) for x in range(arena.shape[0]) for y in range(arena.shape[1]) if explosion_map[x,y] > 0]
-    if log_features: print("explosion_coords:",explosion_coords)
-    if log_features: print("explosion_map:",explosion_map)
+    '''if log_features: print("explosion_coords:",explosion_coords)
+    if log_features: print("explosion_map:",explosion_map)'''
     # 1. Distance to Nearest Coin
     distances_to_coins = [np.abs(x-cx) + np.abs(y-cy) for (cx, cy) in coins]
     nearest_coin_distance = min(distances_to_coins) if coins else -1
@@ -282,10 +282,12 @@ def state_to_features(self,game_state: dict) -> np.array:
     
     # Check blast range of each bomb
     blast_coords = []
+    blast_coords_timer = []
     
     for (bx, by), t in bombs:
         # Start with the bomb position itself
         blast_coords.append((bx, by))
+        blast_coords_timer.append(t)
         # For each direction, check for crates
         for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]: # TODO maybe add diagonal directions
             for i in range(1, 4):
@@ -295,9 +297,11 @@ def state_to_features(self,game_state: dict) -> np.array:
                 # Add free spaces
                 if arena[bx + i*dx, by + i*dy] == 0:
                     blast_coords.append((bx + i*dx, by + i*dy))
+                    blast_coords_timer.append(t)
                 # Stop when hitting a crate
                 if arena[bx + i*dx, by + i*dy] == 1:
                     blast_coords.append((bx + i*dx, by + i*dy))
+                    blast_coords_timer.append(t)
                     break
     
 
@@ -362,7 +366,7 @@ def state_to_features(self,game_state: dict) -> np.array:
     else:
         should_drop_bomb = 0 # TODO check if this is correct, maybe other situations to drop bomb
     # 11. Is in a Loop 
-    is_in_loop = 1 if self.coordinate_history.count((x, y)) > 2 else 0
+    is_in_loop = 1 if self.coordinate_history.count((x, y)) > 3 else 0
     self.coordinate_history.append((x, y))
     
     # 12. Ignore Others Timer (normalized)
@@ -462,14 +466,14 @@ def state_to_features(self,game_state: dict) -> np.array:
             for j in range(1, 4):  # Check up to 3 tiles in each direction
                 # Calculate the coordinates of the tile in the current direction
                 tile_x, tile_y = x + j*dx, y + j*dy
-                if log_features: print("x,y: ", tile_x, tile_y)
+              
               
                 
                 # Check if the tile is in the blast range
                 if (tile_x, tile_y) in blast_coords:
                     blast_in_direction[i] += 1
                 if (tile_x,tile_y) in explosion_coords:
-                    if log_features: print("dangerlevel plus 1")
+                   
                     danger_level[i] += 1
                 # If the tile is a wall, stop checking further in this direction
                 elif arena[tile_x, tile_y] == -1:
@@ -485,9 +489,9 @@ def state_to_features(self,game_state: dict) -> np.array:
             for j in range(1, 4):  # Check up to 3 tiles in each direction
                 # Calculate the coordinates of the tile in the current direction
                 tile_x, tile_y = x + j*dx, y + j*dy
-                if log_features: print("x,y: ", tile_x, tile_y)
+             
                 if (tile_x,tile_y) in explosion_coords:
-                    if log_features: print("dangerlevel plus 1")
+                    
                     danger_level[i] += 1
                 # If the tile is a wall, stop checking further in this direction
                 elif arena[tile_x, tile_y] == -1:
@@ -584,12 +588,12 @@ def state_to_features(self,game_state: dict) -> np.array:
             local[xs-x+2,ys-y+2] = 1
         elif (xs,ys) in others:
             local[xs-x+2,ys-y+2] = -4.5
-        elif (xs,ys) in bomb_xys:
-            local[xs-x+2,ys-y+2] = -1
         elif (xs,ys) in explosion_coords:
-            local[xs-x+2,ys-y+2] = -3.5
+            local[xs-x+2,ys-y+2] = -explosion_map[xs,ys]-0.125
         elif (xs,ys) in blast_coords:
-            local[xs-x+2,ys-y+2] = -2.5
+            # Fill in with the timer of bomb explosion
+            index = blast_coords.index((xs,ys))
+            local[xs-x+2,ys-y+2] = -blast_coords_timer[index]-0.125
         elif (xs,ys) == (x,y):
             local[xs-x+2,ys-y+2] = 5
         elif xs < 0 or xs > 16 or ys < 0 or ys > 16:
@@ -613,7 +617,21 @@ def state_to_features(self,game_state: dict) -> np.array:
     ] + [is_in_loop, nearest_bomb_distance] + blast_in_direction + danger_level + local #ignore_others_timer_normalized]
 
 
-    
+    if log_features:
+        self.logger.info(f"Nearest Coin Distance: {nearest_coin_distance}")
+        self.logger.info(f"Angle to Nearest Coin: {angle_to_nearest_coin}")
+        self.logger.info(f"Direction to Coin: {direction_to_coin}")
+        self.logger.info(f"Bomb Threat: {bomb_threat}")
+        self.logger.info(f"Time to Explode: {time_to_explode}")
+        self.logger.info(f"Can Drop Bomb: {can_drop_bomb}")
+        self.logger.info(f"Is Next to Opponent: {is_next_to_opponent}")
+        self.logger.info(f"Is on Bomb: {is_on_bomb}")
+        self.logger.info(f"Should Drop Bomb: {should_drop_bomb}")
+        self.logger.info(f"Is in Loop: {is_in_loop}")
+        self.logger.info(f"Nearest Bomb Distance: {nearest_bomb_distance}")
+        self.logger.info(f"Blast in Direction: {blast_in_direction}")
+        self.logger.info(f'Danger level: {danger_level}')
+        self.logger.info(f"Local Map: {np.array(local).reshape((5,5)).T}")
     return(np.array(features))
 
     '''
@@ -644,7 +662,9 @@ def state_to_features(self,game_state: dict) -> np.array:
     '''
     
     if log_features:
+        '''
         self.logger.debug(f"should_drop_bomb: {should_drop_bomb}")
+        
         self.logger.debug(f"nearest_bomb_distance: {nearest_bomb_distance}")
         self.logger.debug(f"dead_ends: {is_dead_end}")
         self.logger.debug(f"bomb_threat: {bomb_threat}")
@@ -661,6 +681,8 @@ def state_to_features(self,game_state: dict) -> np.array:
         self.logger.debug(f"blast_in_direction: {blast_in_direction}")
         self.logger.debug(f'Danger level: {danger_level}')
         self.logger.debug(f"target_direction: {target_direction}")
+        '''
+        print(features)
     #direction_to_target = [0, 0, 0, 0] # [UP, DOWN, LEFT, RIGHT]
     
     
