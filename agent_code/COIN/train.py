@@ -210,6 +210,14 @@ def setup_training(self):
           
 def train_net(self):
         s, a, r, s_prime, done_mask, prob_a = self.values.make_batch()
+        #Put data on device
+        s = s.to(self.device)
+        a = a.to(self.device)
+        r = r.to(self.device)
+        s_prime = s_prime.to(self.device)
+        done_mask = done_mask.to(self.device)
+        prob_a = prob_a.to(self.device)
+        
         if len(s_prime) ==0:
             self.logger.info(f'No data to train on')
             return
@@ -218,7 +226,7 @@ def train_net(self):
             
             td_target = r + HYPER.gamma * self.model.v(s_prime) * done_mask
             delta = td_target - self.model.v(s)
-            delta = delta.detach().numpy()
+            delta = delta.detach().cpu().numpy()
 
             advantage_lst = []
             advantage = 0.0
@@ -226,7 +234,7 @@ def train_net(self):
                 advantage = HYPER.gamma * HYPER.lmbda * advantage + delta_t[0]
                 advantage_lst.append([advantage])
             advantage_lst.reverse()
-            advantage = torch.tensor(advantage_lst, dtype=torch.float)
+            advantage = torch.tensor(advantage_lst, dtype=torch.float).to(self.device)
 
             pi = self.model.pi(s, softmax_dim=1)
             pi_a = pi.gather(1,a)

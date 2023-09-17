@@ -15,41 +15,57 @@ ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 
 
 
-CONTINUE_TRAINING = None
+
+
+
+GET_INPUT = False
+
+if GET_INPUT:
+
+    CONTINUE_TRAINING = None
 
 
 # Ask from terminal wheter to continue training or not
-CONTINUE_TRAINING = input("Continue training? (y/n)")
-if CONTINUE_TRAINING == "y":
-    CONTINUE_TRAINING = True
+    CONTINUE_TRAINING = input("Continue training? (y/n)")
+    if CONTINUE_TRAINING == "y":
+        CONTINUE_TRAINING = True
+
+    else:
+        CONTINUE_TRAINING = False
+        
+    LOG_WANDB = input("Log to wandb? (y/n)")
+    if LOG_WANDB == "y":
+        LOG_WANDB = True
+    else:
+        LOG_WANDB = False
+        
+    debug_events = input("Debug events while training? (y/n)")
+    if debug_events == "y":
+        DEBUG_EVENTS = True
+    else:
+        DEBUG_EVENTS = False
+        
+    log_to_file = input("Log to file? (y/n)")
+    if log_to_file == "y":
+        LOG_TO_FILE = True
+    else:
+        LOG_TO_FILE = False
+
+
+    log_features = input("Log features? (y/n)")
+    if log_features == "y":
+        log_features = True
+    else:
+        log_features = False
+
 
 else:
     CONTINUE_TRAINING = False
-    
-LOG_WANDB = input("Log to wandb? (y/n)")
-if LOG_WANDB == "y":
-    LOG_WANDB = True
-else:
     LOG_WANDB = False
-    
-debug_events = input("Debug events while training? (y/n)")
-if debug_events == "y":
-    DEBUG_EVENTS = True
-else:
     DEBUG_EVENTS = False
-    
-log_to_file = input("Log to file? (y/n)")
-if log_to_file == "y":
-    LOG_TO_FILE = True
-else:
     LOG_TO_FILE = False
-
-
-log_features = input("Log features? (y/n)")
-if log_features == "y":
-    log_features = True
-else:
     log_features = False
+    
 from collections import deque
 
 def setup(self):
@@ -69,6 +85,7 @@ def setup(self):
     self.steps_done = 0
     self.bomb_history = deque([], 5)
     self.coordinate_history = deque([], 20)
+    self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if self.train or not os.path.isfile(HYPER.MODEL_NAME):
         if CONTINUE_TRAINING:
             self.logger.info("Loading model from saved state.")
@@ -118,7 +135,7 @@ def act(self, game_state: dict) -> str:
         self.RANDOM_ACTION = True
         return np.random.choice(ACTIONS)
     # Get action probabilities
-    prob_distr = self.model.pi(torch.from_numpy(s).float())
+    prob_distr = self.model.pi(torch.from_numpy(s).float().to(self.device))
     categorical = torch.distributions.Categorical(prob_distr)
     
     # Sample action
@@ -130,19 +147,6 @@ def act(self, game_state: dict) -> str:
     self.prob_a = prob_distr[a].item()
     self.RANDOM_ACTION = False
     return action 
-
-    
-    random_prob = .1
-    if self.train and random.random() < random_prob:
-        self.logger.debug("Choosing action purely at random.")
-        # 80%: walk in any direction. 10% wait. 10% bomb.
-        return np.random.choice(ACTIONS, p=[.2, .2, .2, .2, .1, .1])
-
-    self.logger.debug("Querying model for action.")
-    return np.random.choice(ACTIONS, p=self.model)
-
-#from .feature_selection_new import create_features
-# is imported from feature_selection.py
 
 
 # Copied from rule_based agent TODO
