@@ -41,11 +41,11 @@ Hyperparameters = namedtuple("Hyperparameters", [
 SIZE_OF_STATE_VECTOR = 23
 
 HYPER = Hyperparameters(
-    BATCH_SIZE=8,
+    BATCH_SIZE=8,#8,
     GAMMA=0.99,
-    EPS_START=0.95,#0.9,
-    EPS_END=0.05,#0.05,
-    EPS_DECAY= 1000, #1000,
+    EPS_START=0.80,#0.8,
+    EPS_END=0.05,#0.1,
+    EPS_DECAY= 4000, #1000,
     TAU=0.005,
     LR=5e-6,
     N_ACTIONS=len(ACTIONS),

@@ -223,8 +223,6 @@ def train_net(self):
             advantage = torch.tensor(advantage_lst, dtype=torch.float)
 
             pi = self.model.pi(s, softmax_dim=1)
-            print(np.shape(a))
-            print(np.shape(pi))
             pi_a = pi.gather(0,a)
             ratio = torch.exp(torch.log(pi_a) - torch.log(prob_a))  # a/b == exp(log(a)-log(b))
 

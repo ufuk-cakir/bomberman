@@ -20,6 +20,8 @@ import numpy as np
 
 import settings
 
+import wandb
+
 VIEW_SIZE: int = 7
 
 # Ask from terminal wheter to continue training or not
@@ -108,7 +110,7 @@ def view_port_state(game_state: dict) -> np.ndarray:
 
 
 
-
+eps_threshold = 0
 
 def setup(self):
     """
@@ -125,6 +127,10 @@ def setup(self):
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
 
+    #initialize wandb logging
+    if LOG_WANDB:
+        wandb.init(project="bomberman-qagent", name="training-reduced-features")
+        wandb.config.update(HYPER._asdict())
     
     self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     self.steps_done = 0
@@ -175,6 +181,9 @@ def act(self, game_state: dict) -> str:
     else: 
         eps_threshold = HYPER.EPS_END + (HYPER.EPS_START - HYPER.EPS_END) * \
         math.exp(-1. * self.steps_done / HYPER.EPS_DECAY)
+        if LOG_WANDB:
+            wandb.log({"epsilon": eps_threshold})
+        
     self.steps_done += 1
     # If sample is smaller than epsilon, choose random action
     if sample < eps_threshold:
@@ -234,7 +243,8 @@ def look_for_targets(free_space, start, targets,logger=None):
                 frontier.append(neighbor)
                 parent_dict[neighbor] = current
                 dist_so_far[neighbor] = dist_so_far[current] + 1
-    if logger: logger.debug(f'Suitable target found at {best}')
+    if logger: 
+        logger.debug(f'Suitable target found at {best}')
     
     # Determine the first step towards the best found target tile
     current = best
@@ -360,8 +370,17 @@ def state_to_features(self,game_state: dict) -> np.array:
     escape_route_available = 1 if free_spaces > 1 else 0 #TODO implement this correctly
 
     # 10. Direction to Nearest Target (simplified for brevity)
+
+
+    
+
     # Assuming the function look_for_targets returns a direction as (dx, dy)
     targets = coins + dead_ends + crates + others # TODO add others? ADD flag if others are importatnt
+
+
+    # targets_in_blast_range = [targets[i] for i in range(len(targets)) if targets[i] in blast_coords]
+    # self.logger.debug(f'Targets in blast range: { targets_in_blast_range }')
+
     # Exclude targets that are occupied by a bomb
     targets = [targets[i] for i in range(len(targets)) if targets[i] not in bomb_xys]
     
@@ -438,10 +457,21 @@ def state_to_features(self,game_state: dict) -> np.array:
                 # If the tile is a wall, stop checking further in this direction
                 elif arena[tile_x, tile_y] == -1:
                     break
-            
-
-        
     
+    # #avoid that going to target leads to walking into greater danger
+    # if blast_in_direction[0] > blast_in_direction[1] or danger_level[0]>0:
+    #     direction_to_target[0] = 0
+    # if blast_in_direction[1] > blast_in_direction[0] or danger_level[1]>0:
+    #     direction_to_target[1] = 0
+    # if blast_in_direction[2] > blast_in_direction[3] or danger_level[2]>0:
+    #     direction_to_target[1] = 0
+    # if blast_in_direction[3] > blast_in_direction[2] or danger_level[3]>0:
+    #     direction_to_target[0] = 0
+    # self.logger.debug(f'danger level {danger_level}')
+    # self.logger.debug(f'blast in direction {blast_in_direction}')
+    # self.logger.debug(f'direction to target {direction_to_target}')
+        
+    #exclude direction to target if it brings you into blast radius or explosion radius
 
     # Distance to closest bomb
     distance_to_bombs = [np.abs(x-bx) + np.abs(y-by) for (bx, by) in bomb_xys]

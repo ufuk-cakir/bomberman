@@ -331,7 +331,7 @@ def reward_from_events(self, events: List[str]) -> int:
     'loot-crate': {
     e.COIN_COLLECTED: 4.0,
     e.KILLED_OPPONENT: 8.0,
-    e.KILLED_SELF: -8.0,
+    e.KILLED_SELF: -20.0,
     e.INVALID_ACTION: -0.5,
     e.WAITED: -0.3,
     e.MOVED_LEFT: -0.1,
