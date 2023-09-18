@@ -68,8 +68,10 @@ def setup(self):
     if self.train or not os.path.isfile(HYPER.MODEL_NAME):
         if CONTINUE_TRAINING:
             self.logger.info("Loading model from saved state.")
-            with open(HYPER.MODEL_NAME, "rb") as file:
-                self.model = pickle.load(file)
+            self.model = PPO(NUMBER_OF_POSSIBLE_ACTIONS=len(ACTIONS), SIZE_OF_STATE_VECTOR=HYPER.SIZE_OF_STATE_VECTOR)
+            self.model.load_state_dict(torch.load(HYPER.MODEL_NAME))
+            '''with open(HYPER.MODEL_NAME, "rb") as file:
+                self.model = pickle.load(file)'''
             return
         else:
             self.logger.info("Setting up model from scratch.")
@@ -78,8 +80,10 @@ def setup(self):
             self.model = PPO(NUMBER_OF_POSSIBLE_ACTIONS=len(ACTIONS), SIZE_OF_STATE_VECTOR=HYPER.SIZE_OF_STATE_VECTOR)
     else:
         self.logger.info("Loading model from saved state.")
-        with open(HYPER.MODEL_NAME, "rb") as file:
-            self.model = pickle.load(file)
+        self.model = PPO(NUMBER_OF_POSSIBLE_ACTIONS=len(ACTIONS), SIZE_OF_STATE_VECTOR=HYPER.SIZE_OF_STATE_VECTOR)
+        self.model.load_state_dict(torch.load(HYPER.MODEL_NAME))
+        #with open(HYPER.MODEL_NAME, "rb") as file:
+        #    self.model = pickle.load(file)
 
 
 def act(self, game_state: dict) -> str:

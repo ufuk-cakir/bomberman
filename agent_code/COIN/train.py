@@ -358,8 +358,9 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         self.bomb_history = deque([], 5)
         self.coordinate_history = deque([], 20)
         # Store the model
-        with open(HYPER.MODEL_NAME, "wb") as file:
-            pickle.dump(self.model, file)
+        torch.save(self.model.state_dict(), HYPER.MODEL_NAME)
+        #with open(HYPER.MODEL_NAME, "wb") as file:
+        #    pickle.dump(self.model, file)
             
     #clear log file
     with open("logs/PPOLD.log", "w") as file:
