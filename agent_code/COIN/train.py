@@ -34,9 +34,9 @@ import settings
 
 log_to_file = LOG_TO_FILE
 
-train_in_round = False 
-TRAIN_EVERY_N_STEPS = 400
-TRAIN_EVERY_END_OF_ROUND = True
+train_in_round = True 
+TRAIN_EVERY_N_STEPS = 128
+TRAIN_EVERY_END_OF_ROUND = False
 class Values:
     ''' Values to keep track of each game and reset after each game'''
     
@@ -443,9 +443,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
             self.logger.info(f'best score {agent_score}')
         torch.save(self.model.state_dict(), HYPER.MODEL_NAME)
             
-    #clear log file
-    with open("logs/PPOLD.log", "w") as file:
-        file.write("")
+   
 
 
 
@@ -486,7 +484,7 @@ BLAST_COUNT_RIGHT_DECREASED = "BLAST_COUNT_RIGHT_DECREASED"
 WENT_INTO_BOMB_RADIUS_AND_DIED = "WENT_INTO_BOMB_RADIUS_AND_DIED"
 DROPPED_BOMB_AND_COLLECTED_COIN_MEANWHILE = "DROPPED_BOMB_AND_COLLECTED_COIN_MEANWHILE"
 
-
+AGENT_CHOSE_INVALID_DIRECTION = "AGENT_CHOSE_INVALID_DIRECTION"
 
 
 
@@ -497,19 +495,39 @@ def check_custom_events(self, events: List[str],action, features_old, features_n
     if action == "BOMB":
         self.values.frames_after_bomb = 0
     
-    nearest_coin_distance_old,coin_angle_old, direction_coin_old, bomb_threat_old, time_to_explode_old,\
+    '''
+    nearest_coin_distance_old,coin_angle_old, direction_coin_old_y, direction_coin_old_x, bomb_threat_old, time_to_explode_old,\
         can_drop_bomb_old, is_next_to_opponent_old, is_on_bomb_old, should_drob_bomb_old,\
              is_in_loop_old, nearest_bomb_distance_old,\
                     blast_count_up_old, blast_count_down_old, blast_count_left_old,blast_count_right_old, \
                         danger_level_up_old, danger_level_down_old, danger_level_left_old, danger_level_right_old,*local_view_old = features_old
     
-    nearest_coin_distance_new, coin_angle_new, direction_coin_new, bomb_threat_new, time_to_explode_new,\
+    nearest_coin_distance_new, coin_angle_new, direction_coin_new_y, direction_coin_new_x, bomb_threat_new, time_to_explode_new,\
         can_drop_bomb_new, is_next_to_opponent_new, is_on_bomb_new, should_drob_bomb_new,\
              is_in_loop_new, nearest_bomb_distance_new,\
                     blast_count_up_new, blast_count_down_new, blast_count_left_new,blast_count_right_new, \
                         danger_level_up_new, danger_level_down_new, danger_level_left_new, danger_level_right_new ,*local_view_new= features_new
+    '''
+    valid_direction_up_old, valid_direction_down_old,valid_direction_left_old,valid_direction_right_old, nearest_coin_distance_old, coin_angle_old, direction_coin_old_y, direction_coin_old_x, bomb_threat_old, time_to_explode_old,\
+    can_drop_bomb_old, is_next_to_opponent_old, is_on_bomb_old, is_in_loop_old,\
+    nearest_bomb_distance_old, blast_count_up_old, blast_count_down_old, blast_count_left_old, blast_count_right_old, \
+    danger_level_up_old, danger_level_down_old, danger_level_left_old, danger_level_right_old, *local_view_old = features_old
+
+    valid_direction_up_new, valid_direction_down_new,valid_direction_left_new,valid_direction_right_new,nearest_coin_distance_new, coin_angle_new, direction_coin_new_y, direction_coin_new_x, bomb_threat_new, time_to_explode_new,\
+        can_drop_bomb_new, is_next_to_opponent_new, is_on_bomb_new, is_in_loop_new,\
+        nearest_bomb_distance_new, blast_count_up_new, blast_count_down_new, blast_count_left_new, blast_count_right_new, \
+        danger_level_up_new, danger_level_down_new, danger_level_left_new, danger_level_right_new, *local_view_new = features_new
+            
                 
-                
+    #Check if agent chose valid direction
+    if action == "UP" and not valid_direction_up_old:
+        events.append("AGENT_CHOSE_INVALID_DIRECTION")
+    if action == "DOWN" and not valid_direction_down_old:
+        events.append("AGENT_CHOSE_INVALID_DIRECTION")
+    if action == "LEFT" and not valid_direction_left_old:
+        events.append("AGENT_CHOSE_INVALID_DIRECTION")
+    if action == "RIGHT" and not valid_direction_right_old:
+        events.append("AGENT_CHOSE_INVALID_DIRECTION")
     
     
     # Feature list: [nearest_coin_distance, is_dead_end, bomb_threat, time_to_explode, can_drop_bomb, 
@@ -559,20 +577,7 @@ def check_custom_events(self, events: List[str],action, features_old, features_n
      
      #TODO CHECK THIS
         
-    # Check if agent dropped bomb when he should have
-    if not should_drob_bomb_old and action=="BOMB":
-        events.append(DROPPED_BOMB_WHEN_SHOULDNT)
-        
-    # Check if agent did not drop bomb when he should have
-    if should_drob_bomb_old and action !="BOMB":
-        events.append(DIDNT_DROP_BOMB_WHEN_SHOULD)
-        
-    # Check if agent successfully placed bomb
-    if should_drob_bomb_old and action=="BOMB":
-        if nearest_bomb_distance_new == 0:
-            events.append(DROPPED_BOMB_WHEN_SHOULD_BUT_STAYED)
-        if nearest_bomb_distance_new > 0:
-            events.append(DROPPED_BOMB_WHEN_SHOULD_AND_MOVED)
+
         
     blast_count_old = [blast_count_up_old, blast_count_down_old, blast_count_left_old, blast_count_right_old]
     blast_count_new = [blast_count_up_new, blast_count_down_new, blast_count_left_new, blast_count_right_new]
@@ -731,24 +736,17 @@ def reward_from_events(self, events: List[str]) -> int:
         
     }
     coin_rewards_loot_crate = {
-        e.COIN_COLLECTED: 20,
-        FURTHER_FROM_COIN:-10,
-        CLOSER_TO_COIN: 20,
-        FURTHER_FROM_COIN:-10,
-        e.INVALID_ACTION:-10,
+        e.COIN_COLLECTED: 40,
+        CLOSER_TO_COIN: 60,
+        FURTHER_FROM_COIN:-32,
+        e.INVALID_ACTION:-20,
         e.CRATE_DESTROYED: 20,
         e.COIN_FOUND: 15,
         WAITED_TOO_LONG:-20,
-        DROPPED_BOMB_WHEN_SHOULDNT:-150,
-        DIDNT_DROP_BOMB_WHEN_SHOULD:-25,
-        DROPPED_BOMB_WHEN_SHOULD_AND_MOVED: 20,
-        DROPPED_BOMB_WHEN_SHOULD_BUT_STAYED: -5,
-        e.KILLED_SELF:-50,
+        e.KILLED_SELF:-150,
         ESCAPED_BOMB: 28,
         GOING_TOWARDS_BOMB:-25,
-        GOING_AWAY_FROM_BOMB: 15,
-        #TOOK_DIRECTION_TOWARDS_TARGET: 20,
-        #TOOK_DIRECTION_AWAY_FROM_TARGET: -25,
+        GOING_AWAY_FROM_BOMB: 25,
         IS_IN_LOOP: -10,
         GOT_OUT_OF_LOOP: 10,#not sure if this is working
         IN_BLAST_RADIUS:-50,
@@ -757,8 +755,8 @@ def reward_from_events(self, events: List[str]) -> int:
         BLAST_COUNT_LEFT_DECREASED: 25,
         BLAST_COUNT_RIGHT_DECREASED: 25,
         WENT_INTO_BOMB_RADIUS_AND_DIED: -25,
-        #DROPPED_BOMB_AND_COLLECTED_COIN_MEANWHILE: 25,
-        #e.SURVIVED_ROUND:150,
+        AGENT_CHOSE_INVALID_DIRECTION: -50,
+  
     }
     
     # make this a global dict

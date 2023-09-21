@@ -60,7 +60,7 @@ if GET_INPUT:
 
 
 else:
-    CONTINUE_TRAINING = False
+    CONTINUE_TRAINING = True
     LOG_WANDB = True
     DEBUG_EVENTS = False
     LOG_TO_FILE = False
@@ -161,58 +161,6 @@ def act(self, game_state: dict) -> str:
 
 
 # Copied from rule_based agent TODO
-import numpy as np
-from random import shuffle
-def look_for_targets(free_space, start, targets,logger=None):
-    """Find direction of closest target that can be reached via free tiles.
-
-    Performs a breadth-first search of the reachable free tiles until a target is encountered.
-    If no target can be reached, the path that takes the agent closest to any target is chosen.
-
-    Args:
-        free_space: Boolean numpy array. True for free tiles and False for obstacles.
-        start: the coordinate from which to begin the search.
-        targets: list or array holding the coordinates of all target tiles.
-        logger: optional logger object for debugging.
-    Returns:
-        coordinate of first step towards closest target or towards tile closest to any target.
-    """
-
-    if len(targets) == 0: return None
-
-    frontier = [start]
-    parent_dict = {start: start}
-    dist_so_far = {start: 0}
-    best = start
-    best_dist = np.sum(np.abs(np.subtract(targets, start)), axis=1).min()
-
-    while len(frontier) > 0:
-        current = frontier.pop(0)
-        # Find distance from current position to all targets, track closest
-        d = np.sum(np.abs(np.subtract(targets, current)), axis=1).min()
-        if d + dist_so_far[current] <= best_dist:
-            best = current
-            best_dist = d + dist_so_far[current]
-        if d == 0:
-            # Found path to a target's exact position, mission accomplished!
-            best = current
-            break
-        # Add unexplored free neighboring tiles to the queue in a random order
-        x, y = current
-        neighbors = [(x, y) for (x, y) in [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)] if free_space[x, y]]
-        shuffle(neighbors)
-        for neighbor in neighbors:
-            if neighbor not in parent_dict:
-                frontier.append(neighbor)
-                parent_dict[neighbor] = current
-                dist_so_far[neighbor] = dist_so_far[current] + 1
-    if logger: logger.debug(f'Suitable target found at {best}')
-    
-    # Determine the first step towards the best found target tile
-    current = best
-    while True:
-        if parent_dict[current] == start: return current
-        current = parent_dict[current]
 
 
 
@@ -259,8 +207,6 @@ def state_to_features(self,game_state: dict) -> np.array:
     explosion_map = game_state['explosion_map'] 
     
     explosion_coords = [(x,y) for x in range(arena.shape[0]) for y in range(arena.shape[1]) if explosion_map[x,y] > 0]
-    '''if log_features: print("explosion_coords:",explosion_coords)
-    if log_features: print("explosion_map:",explosion_map)'''
     # 1. Distance to Nearest Coin
     distances_to_coins = [np.abs(x-cx) + np.abs(y-cy) for (cx, cy) in coins]
     nearest_coin_distance = min(distances_to_coins) if coins else -1
@@ -268,28 +214,14 @@ def state_to_features(self,game_state: dict) -> np.array:
 
     cols = range(1, arena.shape[0] - 1)
     rows = range(1, arena.shape[0] - 1)
-    dead_ends = [(x, y) for x in cols for y in rows if (arena[x, y] == 0)
-                 and ([arena[x + 1, y], arena[x - 1, y], arena[x, y + 1], arena[x, y - 1]].count(0) == 1)]
     crates = [(x, y) for x in cols for y in rows if (arena[x, y] == 1)]
     
     
     # 2.Dead End
-    dead_ends = [(x, y) for x in cols for y in rows if (arena[x, y] == 0)
-                 and ([arena[x + 1, y], arena[x - 1, y], arena[x, y + 1], arena[x, y - 1]].count(0) == 1)]
     directions = [(x+dx, y+dy) for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]]
     free_spaces = sum(1 for d in directions if arena[d] == 0)
     
-    is_dead_end = 1 if free_spaces == 1 else 0 #TODO maybe remove this
 
-    # 3. Nearby Bomb Threat and 4. Bomb's Time to Explosion
-    '''
-    bomb_threat = 0
-    time_to_explode = 5  # Assuming max time is 4 for a bomb to explode TODO is this correct?
-    for (bx, by), t in bombs:
-        if abs(bx - x) < 4 or abs(by - y) < 4:
-            bomb_threat = 1
-            time_to_explode = min(time_to_explode, t)
-    '''
     
     # Check blast range of each bomb
     blast_coords = []
@@ -335,135 +267,15 @@ def state_to_features(self,game_state: dict) -> np.array:
     # 7. Is on Bomb
     is_on_bomb = 1 if (x, y) in bomb_xys else 0
 
-    # 8. Number of targets
-    #crates_nearby = sum(1 for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)] if arena[x+dx, y+dy] == 1)
-    
-    # 9. Escape Route Available (simplified for brevity)
-    escape_route_available = 1 if free_spaces > 1 else 0 #TODO implement this correctly
-
-    # 10. Direction to Nearest Target (simplified for brevity)
-    # Assuming the function look_for_targets returns a direction as (dx, dy)
-    targets = coins + dead_ends + crates + others # TODO add others? ADD flag if others are importatnt
-    # Exclude targets that are occupied by a bomb
-    targets = [targets[i] for i in range(len(targets)) if targets[i] not in bomb_xys]
-    
-    # Exclude targets that are currently in explosion map
-    targets = [targets[i] for i in range(len(targets)) if explosion_map[targets[i]] == 0]
-
-    # Exlucude coordinates that are in blast range of a bomb
-    targets = [targets[i] for i in range(len(targets)) if targets[i] not in blast_coords]
-    
-    target_direction = look_for_targets(arena == 0, (x, y), targets)
-
-    direction_to_target = [0, 0, 0, 0]  # [UP, DOWN, LEFT, RIGHT]
-    if target_direction:
-        if target_direction == (x, y-1): direction_to_target[0] = 1
-        elif target_direction == (x, y+1): direction_to_target[1] = 1
-        elif target_direction == (x-1, y): direction_to_target[2] = 1
-        elif target_direction == (x+1, y): direction_to_target[3] = 1
-
-    
-    if (x, y) in dead_ends:
-        should_drop_bomb = 1
-    if (x, y) in dead_ends:
-        should_drop_bomb = 1
-    # Add proposal to drop a bomb if touching an opponent
-    if len(others) > 0:
-        if (min(abs(xy[0] - x) + abs(xy[1] - y) for xy in others)) <= 1:
-            should_drop_bomb = 1
-    # Add proposal to drop a bomb if arrived at target and touching crate
-    if target_direction == (x, y) and ([arena[x + 1, y], arena[x - 1, y], arena[x, y + 1], arena[x, y - 1]].count(1) > 0):
-        should_drop_bomb = 1
-    else:
-        should_drop_bomb = 0 # TODO check if this is correct, maybe other situations to drop bomb
     # 11. Is in a Loop 
     is_in_loop = 1 if self.coordinate_history.count((x, y)) > 3 else 0
     self.coordinate_history.append((x, y))
-    
-    # 12. Ignore Others Timer (normalized)
-    #ignore_others_timer_normalized = self.ignore_others_timer / 5  # Assuming max timer is 5
-
-    # Add a local view of the map as a feature, hyperparameter LOCAL_VIEW_SIZE
-    
-    #local_map = arena[x-HYPER.LOCAL_VIEW_SIZE:x+HYPER.LOCAL_VIEW_SIZE+1,y-HYPER.LOCAL_VIEW_SIZE:y+HYPER.LOCAL_VIEW_SIZE+1]
-    #local_map = local_map.flatten() # flatten to 1D array
-    
-   # features = features + local_map.tolist()
-   # self.logger.debug(f'Raw features: {features}')
-    # Normalizing featur
     
     # Add proposal to run away from any nearby bomb about to blow,
     # update direction_to_target
     # first check if there is a bomb nearby
     #self.logger.debug(f"intermediate direction_to_target: {direction_to_target}")
     debug_bomb = 0
-    '''
-    if bomb_threat:
-        
-    
-        # Reset direction_to_target
-        direction_to_target = [0, 0, 0, 0] # [UP, DOWN, LEFT, RIGHT]
-        for (xb, yb), t in bombs:
-            if (xb == x) and (abs(yb - y) < 4):
-                # Run away
-                if (yb > y): 
-                    self.logger.debug("5") if debug_bomb else None
-                    direction_to_target[0] = 1
-                if (yb < y): 
-                    self.logger.debug("6") if debug_bomb else None
-                    direction_to_target[1] = 1
-                # If possible, turn a corner
-                # Check which direction is free
-                if (arena[x + 1, y] == 0): # check if bomb is to the right
-                    self.logger.debug("7") if debug_bomb else None
-                    direction_to_target[3] = 1 
-                if (arena[x - 1, y] == 0): # check if bomb is to the left
-                    self.logger.debug("8") if debug_bomb else None
-                    direction_to_target[2] = 1 
-                
-        
-            if (yb == y) and (abs(xb - x) < 4):
-               
-                # Run away
-                if (xb > x): 
-                    self.logger.debug("9") if debug_bomb else None
-                    direction_to_target[2] = 1
-                if (xb < x): 
-                    self.logger.debug("10") if debug_bomb else None
-                    direction_to_target[3] = 1
-                # If possible, turn a corner
-                # Check which direction is free
-                if (arena[x, y + 1] == 0) and (yb > y): 
-                    self.logger.debug("11") if debug_bomb else None
-                    direction_to_target[1] = 1
-                if (arena[x, y - 1] == 0) and (yb < y): 
-                    self.logger.debug("12")if debug_bomb else None 
-                    direction_to_target[0] = 1#
-            
-        for (xb, yb), t in bombs:
-           # self.logger.debug(f'Found bomb at {(xb, yb)}')
-            #self.logger.debug(f'Current position: {(x, y)}')
-            if xb == x and yb == y:
-               # self.logger.debug("on bomb search free direction")
-                direction_to_target = [0, 0, 0, 0]
-                # free directions
-                if (arena[x + 1, y] == 0): 
-                #    self.logger.debug("1")
-                    direction_to_target[3] = 1 #go right
-                    break
-                if (arena[x - 1, y] == 0): 
-                  #  self.logger.debug("2")
-                    direction_to_target[2] = 1 #go left
-                    break
-                if (arena[x, y + 1] == 0): # NOTE y goes from top to bottom
-                  #  self.logger.debug("3")
-                    direction_to_target[1] = 1 #go DOWN !!!
-                    break
-                if (arena[x, y - 1] == 0):
-                  #  self.logger.debug("4")
-                    direction_to_target[0] = 1#go down
-    
-    '''
     
     
     
@@ -515,48 +327,14 @@ def state_to_features(self,game_state: dict) -> np.array:
     # Distance to closest bomb
     distance_to_bombs = [np.abs(x-bx) + np.abs(y-by) for (bx, by) in bomb_xys]
     nearest_bomb_distance = min(distance_to_bombs) if bomb_xys else -1
+    
     # time to explode
     time_to_explode = 5  # Assuming max time is 4 for a bomb to explode TODO is this correct?
     for (bx, by), t in bombs:
         if abs(bx - x) < 4 or abs(by - y) < 4:
            time_to_explode = min(time_to_explode, t)
     
-    # TODO: maybe add feature if closest opponen can drop bomb
-    
-    
-    
-    # Danger level of each direction
-    #danger_level = get_danger_level(self,(x, y), explosion_map, arena)
-   
-   
-   
-    
-    # count in each direction how many free tiles are available until a wall or crate is hit
-    
-    ''' 
-    free_tiles_in_direction = [0, 0, 0, 0] # [UP, DOWN, LEFT, RIGHT]
-    for i, (dx, dy) in enumerate(directions):
-        for j in range(1, 10):
-            # Calculate the coordinates of the tile in the current direction
-            tile_x, tile_y = x + j*dx, y + j*dy
-            # Check if the tile is a wall or crate
-            if arena[tile_x, tile_y] == -1 or arena[tile_x, tile_y] == 1:
-                break
-            # If the tile is free, increase the counter
-            elif arena[tile_x, tile_y] == 0:
-                free_tiles_in_direction[i] += 1
-    
-    # Normalize free_tiles_in_direction
-    free_tiles_in_direction = [x / max(free_tiles_in_direction) for x in free_tiles_in_direction]
-    '''
-    
-    
-    
-    
-    # Combining all features into a single list
-    
-    #give flattened array if local map as features, go three tiles in each direction
-    
+
     # Get angle to nearest coin
     if len(coins) > 0:
         nearest_coin = coins[np.argmin(distances_to_coins)]
@@ -566,18 +344,22 @@ def state_to_features(self,game_state: dict) -> np.array:
         angle_to_nearest_coin = -1
     
     
-    # Add direction to nearest coin: 0 = UP, 1 = DOWN, 2 = LEFT, 3 = RIGHT
+    # Add direction to nearest coin: 
+    # Encode if the coin is above or below the agent in first bit, and if it is left or right in second bit
+    direction_to_coin = [-1, -1]
     if len(coins) > 0:
         nearest_coin = coins[np.argmin(distances_to_coins)]
-        if nearest_coin[1] < y: direction_to_coin = 0
-        elif nearest_coin[1] > y: direction_to_coin = 1
-        elif nearest_coin[0] < x: direction_to_coin = 2
-        elif nearest_coin[0] > x: direction_to_coin = 3
-        else: direction_to_coin = -1
-        
-    else:
-        direction_to_coin = -1
-        
+        if nearest_coin[0] - x > 0:
+            direction_to_coin[1] = 1 # Coin is to the right
+        else:
+            direction_to_coin[1] = 0 # Coin is to the left
+            
+        if nearest_coin[1] - y > 0:
+            direction_to_coin[0] = 1 # Coin is below
+        else:
+            direction_to_coin[0] = 0 # Coin is above
+            
+    
      
     
     
@@ -621,11 +403,21 @@ def state_to_features(self,game_state: dict) -> np.array:
     local = local.flatten().tolist()
     
 
+    valid_directions = [0, 0, 0, 0]  # [UP, DOWN, LEFT, RIGHT]
+    directions = [(0, -1), (0, 1), (-1, 0), (1, 0)]  # [UP, DOWN, LEFT, RIGHT]
+    for i, (dx, dy) in enumerate(directions):
+        tile_x, tile_y = x + dx, y + dy
+        # check if the tile is free
+        if arena[tile_x, tile_y] ==0:
+            valid_directions[i] = 1
     
-    features = [
-        nearest_coin_distance, angle_to_nearest_coin,direction_to_coin, bomb_threat, time_to_explode,
-        can_drop_bomb, is_next_to_opponent, is_on_bomb, should_drop_bomb,
+    
+    features = valid_directions+[
+        nearest_coin_distance, angle_to_nearest_coin] + direction_to_coin + [ bomb_threat, time_to_explode,
+        can_drop_bomb, is_next_to_opponent, is_on_bomb, 
     ] + [is_in_loop, nearest_bomb_distance] + blast_in_direction + danger_level + local #ignore_others_timer_normalized]
+
+
 
 
     if log_features:
@@ -637,103 +429,9 @@ def state_to_features(self,game_state: dict) -> np.array:
         self.logger.info(f"Can Drop Bomb: {can_drop_bomb}")
         self.logger.info(f"Is Next to Opponent: {is_next_to_opponent}")
         self.logger.info(f"Is on Bomb: {is_on_bomb}")
-        self.logger.info(f"Should Drop Bomb: {should_drop_bomb}")
         self.logger.info(f"Is in Loop: {is_in_loop}")
         self.logger.info(f"Nearest Bomb Distance: {nearest_bomb_distance}")
         self.logger.info(f"Blast in Direction: {blast_in_direction}")
         self.logger.info(f'Danger level: {danger_level}')
-        self.logger.info(f"Local Map: {np.array(local).reshape((5,5)).T}")
+        self.logger.info(f"Local Map:\n {np.array(local).reshape((5,5)).T}")
     return(np.array(features))
-
-    '''
-    # Initialize a 3x3 array with negative values
-    local_map = np.full((3, 3), -1)
-
-    # Calculate the start and end indices for extraction from the arena
-    start_x = max(x-HYPER.LOCAL_VIEW_SIZE, 0)
-    end_x = min(x+HYPER.LOCAL_VIEW_SIZE+1, arena.shape[0])
-    start_y = max(y-HYPER.LOCAL_VIEW_SIZE, 0)
-    end_y = min(y+HYPER.LOCAL_VIEW_SIZE+1, arena.shape[1])
-
-    # Calculate the position to start setting values in the initialized local_map
-    offset_x = HYPER.LOCAL_VIEW_SIZE - (x - start_x)
-    offset_y = HYPER.LOCAL_VIEW_SIZE - (y - start_y)
-
-    # Extract the relevant portion from the arena
-    extracted_area = arena[start_x:end_x, start_y:end_y]
-
-    # Set the values in local_map from extracted_area
-    local_map[offset_x:offset_x+extracted_area.shape[0], offset_y:offset_y+extracted_area.shape[1]] = extracted_area
-
-    # Flatten the local map to a 1D array
-    local_map_flattened = local_map.flatten()
-
-    # Append this flattened array to your feature list
-    features = features + local_map_flattened.tolist()
-    '''
-    
-    if log_features:
-        '''
-        self.logger.debug(f"should_drop_bomb: {should_drop_bomb}")
-        
-        self.logger.debug(f"nearest_bomb_distance: {nearest_bomb_distance}")
-        self.logger.debug(f"dead_ends: {is_dead_end}")
-        self.logger.debug(f"bomb_threat: {bomb_threat}")
-        self.logger.debug(f"time_to_explode: {time_to_explode}")
-        self.logger.debug(f"can_drop_bomb: {can_drop_bomb}")
-        self.logger.debug(f"is_next_to_opponent: {is_next_to_opponent}")
-        self.logger.debug(f"is_on_bomb: {is_on_bomb}")
-        self.logger.debug(f"escape_route_available: {escape_route_available}")
-        self.logger.debug(f"is_in_loop: {is_in_loop}")
-        self.logger.debug(f"nearest_coin_distance: {nearest_coin_distance}")
-        self.logger.debug(f"direction_to_target: {direction_to_target}")
-        self.logger.debug(f"nearest_bomb_distance: {nearest_bomb_distance}")
-        self.logger.debug(f"bomb_xys: {bomb_xys}")
-        self.logger.debug(f"blast_in_direction: {blast_in_direction}")
-        self.logger.debug(f'Danger level: {danger_level}')
-        self.logger.debug(f"target_direction: {target_direction}")
-        '''
-        print(features)
-    #direction_to_target = [0, 0, 0, 0] # [UP, DOWN, LEFT, RIGHT]
-    
-    
-    # Give instead the whole arena as feature
-    
-    board = arena.copy().astype(float)
-    
-    
-    # Put bombs on board with timer
-    for (bx, by), t in bombs:
-        val = t + .25 # add 2.5 to distinguish from crates
-        board[bx, by] = -val # negative values to emphasize danger
-        
-    
-    # Put coins on board
-
-    for (cx, cy) in coins:
-        board[cx, cy] = 1.5 # add 1.5 to distinguish from crates
-        
-    # put explosion map on board
-    for (ex, ey) in explosion_coords:
-        board[ex, ey] = -3.5 # negative values to emphasize danger
-    
-
-    # put others on board, add indicator if they can drop bomb
-    other_agents = game_state['others']
-    for agent in other_agents:
-        (ox, oy) = agent[3]
-        if agent[2]:
-            board[ox, oy] = -4.5
-        else:
-            board[ox, oy] = 4.5
-            
-    
-    
-    # Put own position on board
-    board[x, y] = 5
-    features = board.flatten().tolist()
-
-    # self.logger.debug(f"number of features: {len(features)}")
-    #self.logger.debug(f"after:{direction_to_target}")
-    #self.logger.debug("features: " + str(features))
-    return np.array(features)

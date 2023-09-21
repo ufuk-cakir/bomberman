@@ -12,16 +12,16 @@ import numpy as np
 
 class HYPER:
     learning_rate = 0.0005#0.0005
-    gamma         = 0.7#0.98 # discount factor control how much importance we give to future rewards. lower gamma -> short sighted, higher gamma -> far sighted
+    gamma         = 0.98#0.98 # discount factor control how much importance we give to future rewards. lower gamma -> short sighted, higher gamma -> far sighted
     lmbda         = 0.95 # Used for GAE controls how much importance we give to future rewards. lower lambda -> short sighted, higher lambda -> far sighted
-    eps_clip      = 0.3# 0.1 # clups the ratio. If policy updates too drastically, decrease. If policy updates too slowly, increase
-    EPS_START     = 1# 0.9 # Epsilon greedy policy if agents converges to suboptimal policy, increase. If agent is too random, decrease
-    EPS_END       = 0.3#0.05 # Epsilon greedy policy if agents converges to suboptimal policy, increase. If agent is too random, decrease
+    eps_clip      = 0.1# 0.1 # clups the ratio. If policy updates too drastically, decrease. If policy updates too slowly, increase
+    EPS_START     = 0.9# 0.9 # Epsilon greedy policy if agents converges to suboptimal policy, increase. If agent is too random, decrease
+    EPS_END       = 0.05#0.05 # Epsilon greedy policy if agents converges to suboptimal policy, increase. If agent is too random, decrease
     EPS_DECAY     = 4000 # Decay rate of epsilon greedy policy, if agent converges to suboptimal policy, increase. If agent is too random, decrease
-    N_EPOCH       = 3 # Number of times we update the network on same batch of data
-    UPDATE_INTERVAL     = 30
-    HIDDEN_SIZE = 64
-    HIDDEN_LAYER = 2
+    N_EPOCH       = 4 # Number of times we update the network on same batch of data
+    UPDATE_INTERVAL     = 128
+    HIDDEN_SIZE = 128
+    HIDDEN_LAYER = 6
     ACTIVATION_FUNCTION = nn.Tanh()
     MODEL_NAME = "coin_collector.pt"
 
@@ -95,40 +95,3 @@ class PPO(nn.Module):
         return s, a, r, s_prime, done_mask, prob_a
         
     
-'''
-
-def main():
-    env = gym.make('CartPole-v1')
-    model = PPO()
-    score = 0.0
-    print_interval = 20
-
-    for n_epi in range(10000):
-        s, _ = env.reset()
-        done = False
-        while not done:
-            for t in range(T_horizon):
-                prob = model.pi(torch.from_numpy(s).float())
-                m = Categorical(prob)
-                a = m.sample().item()
-                s_prime, r, done, truncated, info = env.step(a)
-
-                model.put_data((s, a, r/100.0, s_prime, prob[a].item(), done))
-                s = s_prime
-
-                score += r
-                if done:
-                    break
-
-            model.train_net()
-
-        if n_epi%print_interval==0 and n_epi!=0:
-            print("# of episode :{}, avg score : {:.1f}".format(n_epi, score/print_interval))
-            score = 0.0
-
-    env.close()
-
-if __name__ == '__main__':
-    main()
-
-'''        
