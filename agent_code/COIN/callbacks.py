@@ -160,10 +160,6 @@ def act(self, game_state: dict) -> str:
     return action 
 
 
-# Copied from rule_based agent TODO
-
-
-
 def get_danger_level(self,agent_position, explosion_map, arena, debug = True):
     x, y = agent_position
     danger_level = [0, 0, 0, 0]  # [UP, DOWN, LEFT, RIGHT]
@@ -181,7 +177,7 @@ def get_danger_level(self,agent_position, explosion_map, arena, debug = True):
     return danger_level
 
 
-# TODO implment ignore others timer like in rule_based_agent
+
 def state_to_features(self,game_state: dict) -> np.array:
     """
     *This is not a required function, but an idea to structure your code.*
@@ -207,7 +203,8 @@ def state_to_features(self,game_state: dict) -> np.array:
     explosion_map = game_state['explosion_map'] 
     
     explosion_coords = [(x,y) for x in range(arena.shape[0]) for y in range(arena.shape[1]) if explosion_map[x,y] > 0]
-    # 1. Distance to Nearest Coin
+   
+    #Distance to Nearest Coin
     distances_to_coins = [np.abs(x-cx) + np.abs(y-cy) for (cx, cy) in coins]
     nearest_coin_distance = min(distances_to_coins) if coins else -1
 
@@ -215,14 +212,7 @@ def state_to_features(self,game_state: dict) -> np.array:
     cols = range(1, arena.shape[0] - 1)
     rows = range(1, arena.shape[0] - 1)
     crates = [(x, y) for x in cols for y in rows if (arena[x, y] == 1)]
-    
-    
-    # 2.Dead End
-    directions = [(x+dx, y+dy) for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]]
-    free_spaces = sum(1 for d in directions if arena[d] == 0)
-    
-
-    
+      
     # Check blast range of each bomb
     blast_coords = []
     blast_coords_timer = []
@@ -256,29 +246,20 @@ def state_to_features(self,game_state: dict) -> np.array:
         bomb_threat = 1
 
 
-   
-   
-    # 5. Can Drop Bomb
+    # Can Drop Bomb
     can_drop_bomb = 1 if bombs_left > 0 and (x, y) not in bomb_xys else 0
 
-    # 6. Is Next to Opponent
+    # Is Next to Opponent
     is_next_to_opponent = 1 if any(abs(ox-x) + abs(oy-y) == 1 for (ox, oy) in others) else 0
 
-    # 7. Is on Bomb
+    # Is on Bomb
     is_on_bomb = 1 if (x, y) in bomb_xys else 0
 
-    # 11. Is in a Loop 
+    # Is in a Loop 
     is_in_loop = 1 if self.coordinate_history.count((x, y)) > 3 else 0
     self.coordinate_history.append((x, y))
-    
-    # Add proposal to run away from any nearby bomb about to blow,
-    # update direction_to_target
-    # first check if there is a bomb nearby
-    #self.logger.debug(f"intermediate direction_to_target: {direction_to_target}")
-    debug_bomb = 0
-    
-    
-    
+
+     
     blast_in_direction = [0, 0, 0, 0] # [UP, DOWN, LEFT, RIGHT]    
     if bomb_threat:
         # Count number of tiles occupied by blast in each direction
@@ -289,9 +270,6 @@ def state_to_features(self,game_state: dict) -> np.array:
             for j in range(1, 4):  # Check up to 3 tiles in each direction
                 # Calculate the coordinates of the tile in the current direction
                 tile_x, tile_y = x + j*dx, y + j*dy
-              
-              
-                
                 # Check if the tile is in the blast range
                 if (tile_x, tile_y) in blast_coords:
                     blast_in_direction[i] += 1
@@ -333,7 +311,6 @@ def state_to_features(self,game_state: dict) -> np.array:
     for (bx, by), t in bombs:
         if abs(bx - x) < 4 or abs(by - y) < 4:
            time_to_explode = min(time_to_explode, t)
-    
 
     # Get angle to nearest coin
     if len(coins) > 0:
@@ -359,9 +336,6 @@ def state_to_features(self,game_state: dict) -> np.array:
         else:
             direction_to_coin[0] = 0 # Coin is above
             
-    
-     
-    
     
     # local map 
     local = np.zeros((5,5)) -2.5
@@ -396,8 +370,6 @@ def state_to_features(self,game_state: dict) -> np.array:
             local[xs-x+2,ys-y+2] = 0
      
     
-    
-    
     # Start with agent position
     local[2,2] = 5 # agent position
     local = local.flatten().tolist()
@@ -416,8 +388,6 @@ def state_to_features(self,game_state: dict) -> np.array:
         nearest_coin_distance, angle_to_nearest_coin] + direction_to_coin + [ bomb_threat, time_to_explode,
         can_drop_bomb, is_next_to_opponent, is_on_bomb, 
     ] + [is_in_loop, nearest_bomb_distance] + blast_in_direction + danger_level + local #ignore_others_timer_normalized]
-
-
 
 
     if log_features:
