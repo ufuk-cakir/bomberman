@@ -1,13 +1,16 @@
-from collections import namedtuple, deque, Counter
-import numpy as np
 import pickle
+from collections import Counter, deque, namedtuple
 from typing import List
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 import events as e
-from .callbacks import state_to_features, ACTIONS, LOG_WANDB, DEBUG_EVENTS, LOG_TO_FILE
+
+from .callbacks import (ACTIONS, DEBUG_EVENTS, LOG_TO_FILE, LOG_WANDB,
+                        state_to_features)
 
 # This is only an example!
 Transition = namedtuple('Transition',
@@ -406,6 +409,13 @@ WENT_INTO_BOMB_RADIUS_AND_DIED = "WENT_INTO_BOMB_RADIUS_AND_DIED"
 DROPPED_BOMB_AND_COLLECTED_COIN_MEANWHILE = "DROPPED_BOMB_AND_COLLECTED_COIN_MEANWHILE"
 
 
+GOING_TO_BOMB_OPPONENT = "GOING_TO_BOMB_OPPONENT"
+NOT_GOING_TO_BOMB_OPPONENT = "NOT_GOING_TO_BOMB_OPPONENT"
+
+GOIN_TOWARDS_OPPONENT = "GOIN_TOWARDS_OPPONENT"
+NOT_GOING_TOWARDS_OPPONENT = "NOT_GOING_TOWARDS_OPPONENT"
+
+
 
 def check_custom_events(self, events: List[str],action, features_old, features_new):
     # Check if agent is closer to coin
@@ -413,20 +423,21 @@ def check_custom_events(self, events: List[str],action, features_old, features_n
     action = ACTIONS[action]
     if action == "BOMB":
         self.values.frames_after_bomb = 0
+
     
     nearest_coin_distance_old, is_dead_end_old, bomb_threat_old, time_to_explode_old,\
         can_drop_bomb_old, is_next_to_opponent_old, is_on_bomb_old, should_drob_bomb_old,\
             escape_route_available_old, direction_to_target_old_UP, direction_to_target_old_DOWN,\
                 direction_to_target_old_LEFT, direction_to_target_old_RIGHT, is_in_loop_old, nearest_bomb_distance_old,\
                     blast_count_up_old, blast_count_down_old, blast_count_left_old,blast_count_right_old, \
-                        danger_level_up_old, danger_level_down_old, danger_level_left_old, danger_level_right_old, *others_old = features_old
+                        danger_level_up_old, danger_level_down_old, danger_level_left_old, danger_level_right_old, nearest_opponent_distance_old, *direction_to_opponent_old, nearest_opponent_can_drop_bomb_old= features_old
     
     nearest_coin_distance_new, is_dead_end_new, bomb_threat_new, time_to_explode_new,\
         can_drop_bomb_new, is_next_to_opponent_new, is_on_bomb_new, should_drob_bomb_new,\
             escape_route_available_new, direction_to_target_new_UP, direction_to_target_new_DOWN,\
                 direction_to_target_new_LEFT, direction_to_target_new_RIGHT, is_in_loop_new, nearest_bomb_distance_new,\
                     blast_count_up_new, blast_count_down_new, blast_count_left_new,blast_count_right_new, \
-                        danger_level_up_new, danger_level_down_new, danger_level_left_new, danger_level_right_new, *other_new = features_new
+                        danger_level_up_new, danger_level_down_new, danger_level_left_new, danger_level_right_new, nearest_opponent_distance_new, *direction_to_opponent_new, nearest_opponent_can_drop_bomb_new= features_new
                 
                 
     
@@ -509,10 +520,18 @@ def check_custom_events(self, events: List[str],action, features_old, features_n
         if action == "LEFT":
             events.append(BLAST_COUNT_RIGHT_DECREASED)
             
-            
+    if is_next_to_opponent_old and action == "BOMB":
+        events.append(GOING_TO_BOMB_OPPONENT)
+    if is_next_to_opponent_old and action != "BOMB":
+        events.append(NOT_GOING_TO_BOMB_OPPONENT)    
     # Check if Agent collected coin while bomb was placed
     if self.values.frames_after_bomb < 5 and e.COIN_COLLECTED in events:
         events.append(DROPPED_BOMB_AND_COLLECTED_COIN_MEANWHILE)
+        
+    if nearest_opponent_distance_old > nearest_opponent_distance_new:
+        events.append(GOIN_TOWARDS_OPPONENT)
+    if nearest_opponent_distance_old < nearest_opponent_distance_new:
+        events.append(NOT_GOING_TOWARDS_OPPONENT)
     
     # Check if agent went into bomb radius and died
     if e.GOT_KILLED:
@@ -663,6 +682,9 @@ def reward_from_events(self, events: List[str]) -> int:
         DROPPED_BOMB_AND_COLLECTED_COIN_MEANWHILE: 25,
         e.KILLED_OPPONENT: 100,
         e.GOT_KILLED: -100,
+        GOING_TO_BOMB_OPPONENT:50,
+        NOT_GOING_TO_BOMB_OPPONENT:-50,
+        GOIN_TOWARDS_OPPONENT: 15,
     
     }
     

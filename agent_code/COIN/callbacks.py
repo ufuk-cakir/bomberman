@@ -505,7 +505,7 @@ def state_to_features(self,game_state: dict) -> np.array:
         
     
 
-        
+    
         
 
     
@@ -539,4 +539,5 @@ def state_to_features(self,game_state: dict) -> np.array:
     
     #self.logger.debug(f"after:{direction_to_target}")
     #self.logger.debug("features: " + str(features))
+
     return np.array(features)
