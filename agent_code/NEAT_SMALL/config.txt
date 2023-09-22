@@ -5,13 +5,13 @@
 # fitness thresholds to be set are for empty: 10000, coin-heaven: 15000, loot-crate: , classic: 
 [NEAT]
 fitness_criterion   = min
-fitness_threshold   = 20
+fitness_threshold   = 25
 pop_size            = 200
-reset_on_extinction = 0
+reset_on_extinction = 1
 
 [DefaultGenome]
-num_inputs              = 292
-num_hidden              = 1
+num_inputs              = 48
+num_hidden              = 0
 num_outputs             = 6
 initial_connection      = partial_direct 0.5
 feed_forward            = False
@@ -57,8 +57,8 @@ compatibility_threshold = 3.0
 
 [DefaultStagnation]
 species_fitness_func = max
-max_stagnation  = 20
+max_stagnation  = 70
 
 [DefaultReproduction]
-elitism            = 3
+elitism            = 4
 survival_threshold = 0.2
