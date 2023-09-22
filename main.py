@@ -146,6 +146,8 @@ def main(argv = None):
         args.n_rounds = 1
         args.match_name = Path(args.replay).name
 
+    
+
     has_gui = not args.no_gui
     if has_gui:
         if not LOADED_PYGAME:
@@ -161,7 +163,6 @@ def main(argv = None):
             args.agents = ["rule_based_agent"] * (s.MAX_AGENTS - 1)
         for agent_name in args.agents:
             agents.append((agent_name, len(agents) < args.train))
-
         world = BombeRLeWorld(args, agents)
         every_step = not args.skip_frames
     elif args.command_name == "replay":

@@ -82,6 +82,7 @@ def reset_self(self):
     self.ignore_others_timer = 0
 
 
+
 def act(self, game_state):
     """
     Called each game step to determine the agent's next action.
@@ -89,7 +90,7 @@ def act(self, game_state):
     You can find out about the state of the game environment via game_state,
     which is a dictionary. Consult 'get_state_for_agent' in environment.py to see
     what it contains.
-    """
+    """    
     self.logger.info('Picking action according to rule set')
     # Check if we are in a different round
     if game_state["round"] != self.current_round:
