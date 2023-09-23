@@ -4,7 +4,7 @@ import neat
 import os
 import copy
 import sys
-import visualize
+#import visualize
 from Training_Game import Game, Agents, Events as e
 
 
