@@ -410,7 +410,7 @@ def state_to_features(self,game_state: dict) -> np.array:
                     direction = np.sign(y-bomb[1])
                     distance = np.abs(y-bomb[1])
                     for i in range (1,4):
-                        if i>=distance:
+                        if i>=distance and not distance == 0:
                             escape_coords.append((x,bomb[1] + direction*i))
                 if bomb[1] == y and np.abs(bomb[0] - x) < 4:
                     direction = np.sign(x-bomb[0])

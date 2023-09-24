@@ -17,7 +17,7 @@ import torch.nn.functional as F
 import wandb
 
 #set scenario for rewards
-scenario = "loot-crate"
+scenario = "coin-heaven"
 
 #count steps in current batch
 #batch_count = 0
@@ -48,7 +48,7 @@ def setup_training(self):
     #logging variables
     self.log_crates = 0
     self.log_coins = 0
-    self.log_kills = 0
+
     
 
 
@@ -258,13 +258,11 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         wandb.log({"final_cumulative_reward": self.score}) 
         wandb.log({"coins collected": self.log_coins})
         wandb.log({"crates destroyed": self.log_crates})
-        wandb.log({"opponents killed": self.log_kills})
         wandb.log({"steps survived": len(self.memory)})
     self.score = 0
     self.memory = Memory(10000)
     self.log_crates = 0
     self.log_coins = 0
-    self.log_kills = 0
     
 
 #Custom Rewards
@@ -359,8 +357,6 @@ def check_custom_events(self, events: List[str],action, features_old, features_n
     #for logging count crates destroyed and if coin collected
     crates = events.count(e.CRATE_DESTROYED)
     self.log_crates += crates
-    kills = events.count(e.KILLED_OPPONENT)
-    self.log_kills += kills
     if e.COIN_COLLECTED in events:
         self.log_coins += 1
     # Check if crate destroyed and survived
@@ -517,78 +513,75 @@ def reward_from_events(self, events: List[str]) -> int:
     
     #performs way worse than before
     'loot-crate': {
-    e.COIN_COLLECTED: 15.0,
-    e.KILLED_SELF: -20.0,
+    e.COIN_COLLECTED: 20.0,
+    e.KILLED_SELF: -10.0,
     e.INVALID_ACTION: -0.5,
     e.WAITED: -0.1,
     e.MOVED_LEFT: -0.1,
     e.MOVED_RIGHT: -0.1,
     e.MOVED_UP: -0.1,
     e.MOVED_DOWN: -0.1,
-    e.BOMB_DROPPED: 0.0,
-    e.BOMB_EXPLODED: 0.0,
+    e.BOMB_DROPPED: 0.5,
+    e.BOMB_EXPLODED: 0.5,
     e.CRATE_DESTROYED: 0.0,
-    CRATE_DESTROYED_AND_SURVIVED: 4.0,
-    e.COIN_FOUND: 0.0,
+    CRATE_DESTROYED_AND_SURVIVED: 5.0,
+    e.COIN_FOUND: 1.0,
     e.SURVIVED_ROUND: 30.0,
-    DROPPED_BOMB_WHEN_SHOULD: 0.5,
-    DROPPED_BOMB_WHEN_SHOULDNT:-1.0,
-    DIDNT_DROP_BOMB_WHEN_SHOULD:-0.5,
+    DROPPED_BOMB_WHEN_SHOULD: 2.0,
+    DROPPED_BOMB_WHEN_SHOULDNT:-2.0,
+    DIDNT_DROP_BOMB_WHEN_SHOULD:-2.0,
     ESCAPED_BOMB: 0.5,
-    GOING_TOWARDS_BOMB:-0.2,
-    GOING_AWAY_FROM_BOMB: 0.2,
-    TOOK_DIRECTION_TOWARDS_TARGET: 1.0,
-    TOOK_DIRECTION_AWAY_FROM_TARGET: -1.5,
+    GOING_TOWARDS_BOMB:-0.5,
+    GOING_AWAY_FROM_BOMB: 0.5,
+    TOOK_DIRECTION_TOWARDS_TARGET: 2.0,
+    TOOK_DIRECTION_AWAY_FROM_TARGET: -3.0,
     # IS_IN_LOOP: -0.2,
     # GOT_OUT_OF_LOOP: 0.2,#not sure if this is working
-    IN_BLAST_RADIUS:-0.5,
-    BLAST_COUNT_UP_DECREASED: 0.3,
-    BLAST_COUNT_DOWN_DECREASED: 0.3,
-    BLAST_COUNT_LEFT_DECREASED: 0.3,
-    BLAST_COUNT_RIGHT_DECREASED: 0.3,
-    WENT_INTO_BOMB_RADIUS_AND_DIED: -5.0,
+    IN_BLAST_RADIUS:-1.0,
+    BLAST_COUNT_UP_DECREASED: 0.5,
+    BLAST_COUNT_DOWN_DECREASED: 0.5,
+    BLAST_COUNT_LEFT_DECREASED: 0.5,
+    BLAST_COUNT_RIGHT_DECREASED: 0.5,
+    WENT_INTO_BOMB_RADIUS_AND_DIED: -3.0,
     #DROPPED_BOMB_AND_COLLECTED_COIN_MEANWHILE: 2.5,
     IN_BLAST_RADIUS_AND_NOT_TRYING_TO_ESCAPE: -2.0,
-    #WAITED_IN_BLAST_RADIUS: -1.0,
+    WAITED_IN_BLAST_RADIUS: -2.0,
     NO_TARGET_DIRECTION: 0.0
     },
 
     'classic': {
-    e.COIN_COLLECTED: 15.0,
-    e.KILLED_SELF: -20.0,
-    e.KILLED_OPPONENT: 50.0,
+    e.COIN_COLLECTED: 10.0,
+    e.KILLED_SELF: -10.0,
     e.INVALID_ACTION: -0.5,
-    e.WAITED: -0.1,
-    e.MOVED_LEFT: -0.1,
-    e.MOVED_RIGHT: -0.1,
-    e.MOVED_UP: -0.1,
-    e.MOVED_DOWN: -0.1,
-    e.BOMB_DROPPED: 0.0,
-    e.BOMB_EXPLODED: 0.0,
+    e.WAITED: 0.1,
+    e.MOVED_LEFT: 0.1,
+    e.MOVED_RIGHT: 0.1,
+    e.MOVED_UP: 0.1,
+    e.MOVED_DOWN: 0.1,
+    e.BOMB_DROPPED: 0.5,
+    e.BOMB_EXPLODED: 0.5,
     e.CRATE_DESTROYED: 0.0,
-    CRATE_DESTROYED_AND_SURVIVED: 4.0,
-    e.COIN_FOUND: 0.0,
+    CRATE_DESTROYED_AND_SURVIVED: 6.0,
+    e.COIN_FOUND: 2.0,
     e.SURVIVED_ROUND: 30.0,
-    DROPPED_BOMB_WHEN_SHOULD: 0.5,
     DROPPED_BOMB_WHEN_SHOULDNT:-1.0,
-    DIDNT_DROP_BOMB_WHEN_SHOULD:-0.5,
-    ESCAPED_BOMB: 0.5,
-    GOING_TOWARDS_BOMB:-0.2,
-    GOING_AWAY_FROM_BOMB: 0.2,
-    TOOK_DIRECTION_TOWARDS_TARGET: 1.0,
-    TOOK_DIRECTION_AWAY_FROM_TARGET: -1.5,
+    DIDNT_DROP_BOMB_WHEN_SHOULD:-1.0,
+    ESCAPED_BOMB: 1.0,
+    GOING_TOWARDS_BOMB:-1.0,
+    GOING_AWAY_FROM_BOMB: 1.0,
+    TOOK_DIRECTION_TOWARDS_TARGET: 2.0,
+    TOOK_DIRECTION_AWAY_FROM_TARGET: -2.0,
     # IS_IN_LOOP: -0.2,
     # GOT_OUT_OF_LOOP: 0.2,#not sure if this is working
-    IN_BLAST_RADIUS:-0.5,
-    BLAST_COUNT_UP_DECREASED: 0.3,
-    BLAST_COUNT_DOWN_DECREASED: 0.3,
-    BLAST_COUNT_LEFT_DECREASED: 0.3,
-    BLAST_COUNT_RIGHT_DECREASED: 0.3,
+    IN_BLAST_RADIUS:-1.0,
+    BLAST_COUNT_UP_DECREASED: 1.0,
+    BLAST_COUNT_DOWN_DECREASED: 1.0,
+    BLAST_COUNT_LEFT_DECREASED: 1.0,
+    BLAST_COUNT_RIGHT_DECREASED: 1.0,
     WENT_INTO_BOMB_RADIUS_AND_DIED: -5.0,
     #DROPPED_BOMB_AND_COLLECTED_COIN_MEANWHILE: 2.5,
-    IN_BLAST_RADIUS_AND_NOT_TRYING_TO_ESCAPE: -2.0,
-    #WAITED_IN_BLAST_RADIUS: -1.0,
-    NO_TARGET_DIRECTION: 0.0
+    IN_BLAST_RADIUS_AND_NOT_TRYING_TO_ESCAPE: -3.0,
+    WAITED_IN_BLAST_RADIUS: -2.0,
     },
 
 }
