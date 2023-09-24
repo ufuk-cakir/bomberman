@@ -60,8 +60,8 @@ if GET_INPUT:
 
 
 else:
-    CONTINUE_TRAINING = True
-    LOG_WANDB = True
+    CONTINUE_TRAINING = False
+    LOG_WANDB = False
     DEBUG_EVENTS = False
     LOG_TO_FILE = False
     log_features = False
@@ -141,7 +141,6 @@ def act(self, game_state: dict) -> str:
         
     # If sample is smaller than epsilon, choose random action
     if sample < eps_threshold:
-       # self.logger.debug("Choosing action purely at random.")
         self.prob_a = 1/len(ACTIONS)
         self.RANDOM_ACTION = True
         return np.random.choice(ACTIONS)
