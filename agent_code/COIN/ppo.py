@@ -7,24 +7,23 @@ from tqdm import tqdm
 import numpy as np
 
 
-
 #Hyperparameters
-
 class HYPER:
     SIZE_OF_STATE_VECTOR = 48
-    learning_rate = 0.0005#0.0005
-    gamma         = 0.98#0.98 # discount factor control how much importance we give to future rewards. lower gamma -> short sighted, higher gamma -> far sighted
-    lmbda         = 0.95 # Used for GAE controls how much importance we give to future rewards. lower lambda -> short sighted, higher lambda -> far sighted
-    eps_clip      = 0.1# 0.1 # clups the ratio. If policy updates too drastically, decrease. If policy updates too slowly, increase
-    EPS_START     = 0.9# 0.9 # Epsilon greedy policy if agents converges to suboptimal policy, increase. If agent is too random, decrease
-    EPS_END       = 0.08#0.05 # Epsilon greedy policy if agents converges to suboptimal policy, increase. If agent is too random, decrease
-    EPS_DECAY     = 3000# Decay rate of epsilon greedy policy, if agent converges to suboptimal policy, increase. If agent is too random, decrease
-    N_EPOCH       = 4#4 # Number of times we update the network on same batch of data
-    UPDATE_INTERVAL     = 30
+    learning_rate = 0.0005
+    gamma         = 0.98
+    lmbda         = 0.95
+    eps_clip      = 0.1
+    EPS_START     = 0.9
+    EPS_END       = 0.08
+    EPS_DECAY     = 3000
+    N_EPOCH       = 4
+    UPDATE_INTERVAL= 30
     HIDDEN_SIZE = 64
     HIDDEN_LAYER = 3#6
     ACTIVATION_FUNCTION = nn.Tanh() #ReLu, LeakyReLu, 
     MODEL_NAME = "coin_collector_new2.pt"
+    
 
 
 class PPO(nn.Module):

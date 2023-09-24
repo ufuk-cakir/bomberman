@@ -27,7 +27,6 @@ TRAIN_EVERY_END_OF_ROUND = False
 
 
 # Events
- 
 WAITED_TOO_LONG = "WAITED_TOO_LONG"
 BOMB_WAS_USELESS = "BOMB_WAS_USELESS"
 AGENT_CHOSE_INVALID_DIRECTION = "AGENT_CHOSE_INVALID_DIRECTION"
@@ -543,4 +542,6 @@ def reward_from_events(self, events: List[str]) -> int:
             reward_sum += coin_rewards[event]
     
     return reward_sum
+
+
 
