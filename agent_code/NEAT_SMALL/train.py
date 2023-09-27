@@ -57,11 +57,11 @@ def train_neat(config):
     p.add_reporter(neat.StdOutReporter(True))
     stats = neat.StatisticsReporter()
     p.add_reporter(stats)
-    p.add_reporter(neat.Checkpointer(50))
+    p.add_reporter(neat.Checkpointer(10))
 
     
 
-    winner = p.run(eval_genomes, 1000)
+    winner = p.run(eval_genomes, 200)
     
     with open("winner.nt", "wb") as f:
         pickle.dump(winner,f)

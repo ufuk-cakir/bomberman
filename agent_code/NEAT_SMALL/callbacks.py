@@ -34,10 +34,12 @@ def setup(self):
 
 
     self.model = winner_network
+    self.coordinate_history = []
+
     return 
 
 
-def state_to_features(game_state: dict) -> np.array:
+def state_to_features(self, game_state: dict) -> np.array:
     """
     *This is not a required function, but an idea to structure your code.*
 
@@ -115,7 +117,7 @@ def state_to_features(game_state: dict) -> np.array:
     is_on_bomb = 1 if (x, y) in bomb_xys else 0
 
     # Is in a Loop 
-    is_in_loop = 1 #if self.coordinate_history.count((x, y)) > 3 else 0
+    is_in_loop = 1 if self.coordinate_history.count((x, y)) > 3 else 0
     #self.coordinate_history.append((x, y))
 
     
@@ -263,7 +265,7 @@ def act(self, game_state: dict) -> str:
     :param game_state: The dictionary that describes everything on the board.
     :return: The action to take as a string.
     """
-    features = state_to_features(game_state)
+    features = state_to_features(self, game_state)
     output = self.model.activate(features)
     return ACTIONS[output.index(max(output))]
 
