@@ -18,9 +18,8 @@ class Game:
     rounds: int
     round_id: int
    
-    def __init__(self, agents, scenario = 'classic', rounds = 1):
+    def __init__(self, agents, rounds = 1):
         self.agents = agents
-        self.scenario = scenario
         self.rng = np.random.default_rng()
         self.initialize_new_game()
         self.rounds = rounds
@@ -31,7 +30,7 @@ class Game:
         CRATE = 1
         arena = np.zeros((COLS, ROWS), int)
 
-        scenario_info = SCENARIOS[self.scenario]
+        scenario_info = SCENARIOS['classic']
 
         # Crates in random locations
         arena[self.rng.random((COLS, ROWS)) < scenario_info["CRATE_DENSITY"]] = CRATE
@@ -219,7 +218,7 @@ class Game:
             self.running = False
             return True
 
-        if self.scenario != 'empty' and (len(self.active_agents) == 1
+        if (len(self.active_agents) == 1
                 and (self.arena == 1).sum() == 0
                 and all([not c.collectable for c in self.coins])
                 and len(self.bombs) + len(self.explosions) == 0):
@@ -254,6 +253,7 @@ class Game:
     def reset_round(self):
         for a in self.agents:
             a.round += 1
+            a.score = 0
             a.dead = False
             a.bombs_left = True
         self.initialize_new_game()
@@ -273,14 +273,10 @@ class Game:
                 self.update_bombs()
                 self.time_to_stop()
                 self.step += 1
-         
+            
             # Clean up survivors and in
             for a in self.active_agents:
                 a.add_event(SURVIVED_ROUND)
-
-            self.reset_round()
-
-        
                 
 
        

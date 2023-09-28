@@ -10,7 +10,7 @@ reset_on_extinction = 0
 
 [DefaultGenome]
 num_inputs              = 1448
-num_hidden              = 1
+num_hidden              = 0
 num_outputs             = 6
 initial_connection      = partial_direct 0.5
 feed_forward            = False
