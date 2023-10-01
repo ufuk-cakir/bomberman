@@ -1,33 +1,250 @@
+from collections import namedtuple, deque, Counter
 import numpy as np
 import pickle
 from typing import List
-
-import events as e
-from .callbacks import state_to_features, ACTIONS
-from collections import namedtuple, deque
-from .ppo import PPO2, HYPER, Transition, Memory
 import torch
-import torch.optim as optim
-import torch.nn.functional as F
-
 import torch.nn as nn
+import torch.nn.functional as F
 import settings
-
 import wandb
-# This is only an example!
-#Transition = namedtuple('Transition',
-#                        ('state', 'action', 'next_state', 'reward', 'prob_a', 'done'))
+import events as e
+from .callbacks import state_to_features, ACTIONS, LOG_WANDB, DEBUG_EVENTS, LOG_TO_FILE
+from .ppo import HYPER
 
-# Hyper parameters -- DO modify
-TRANSITION_HISTORY_SIZE = 3  # keep only ... last transitions
-RECORD_ENEMY_TRANSITIONS = 1.0  # record enemy transitions with probability ...
+
+Transition = namedtuple('Transition',
+                        ('state', 'action', "reward",'next_state',"prob_a","done"))
+
+
+
+# Parameters
+log_to_file = LOG_TO_FILE
+train_in_round = True
+TRAIN_EVERY_N_STEPS = 128
+TRAIN_EVERY_END_OF_ROUND = False
+
+
+
 
 # Events
-PLACEHOLDER_EVENT = "PLACEHOLDER"
+WAITED_TOO_LONG = "WAITED_TOO_LONG"
+BOMB_WAS_USELESS = "BOMB_WAS_USELESS"
+AGENT_CHOSE_INVALID_DIRECTION = "AGENT_CHOSE_INVALID_DIRECTION"
+DROPPED_BOMB_AND_COLLECTED_COIN_MEANWHILE = "DROPPED_BOMB_AND_COLLECTED_COIN_MEANWHILE"
+WENT_INTO_BOMB_RADIUS_AND_DIED = "WENT_INTO_BOMB_RADIUS_AND_DIED"
+BLAST_COUNT_RIGHT_DECREASED = "BLAST_COUNT_RIGHT_DECREASED"
+BLAST_COUNT_LEFT_DECREASED = "BLAST_COUNT_LEFT_DECREASED"
+BLAST_COUNT_DOWN_DECREASED = "BLAST_COUNT_DOWN_DECREASED"
+BLAST_COUNT_UP_DECREASED = "BLAST_COUNT_UP_DECREASED"
+GOING_AWAY_FROM_BOMB = "GOING_AWAY_FROM_BOMB"
+GOING_TOWARDS_BOMB = "GOING_TOWARDS_BOMB"
+ESCAPED_BOMB = "ESCAPED_BOMB"
+IN_BLAST_RADIUS = "IN_BLAST_RADIUS"
+GOT_OUT_OF_LOOP = "GOT_OUT_OF_LOOP"
+IS_IN_LOOP = "IS_IN_LOOP"
+TOOK_DIRECTION_AWAY_FROM_TARGET = "TOOK_DIRECTION_AWAY_FROM_TARGET"
+TOOK_DIRECTION_TOWARDS_TARGET = "TOOK_DIRECTION_TOWARDS_TARGET"
+BOMB_DESTROYS_CRATE = "BOMB_DESTROYS_CRATE"
+ESCAPABLE_BOMB = "ESCAPABLE_BOMB"
+FURTHER_FROM_COIN = "FURTHER_FROM_COIN"
+CLOSER_TO_COIN = "CLOSER_TO_COIN"
+REPEATING_ACTIONS = "REPEATING_ACTIONS"
+WANDB_FLAG = LOG_WANDB
+WANDB_NAME = "COIN_COLLECTOR_WITHOUT_DIRECTION"
 
 
+    
+
+class Values: 
+    ''' Values to keep track of each game and reset after each game'''
+    def __init__(self, logger=None):
+        self.random_actions = 0
+        self.coordinate_history = deque([], 5)
+        self.loss_history = []
+        self.reward_history = []
+        self.score = 0
+        self.global_step = 0
+        self.invalid_actions = 0
+        self.waited_for = 0
+        self.event_history = []
+        self.data = []
+        self.logger = logger
+        self.frames_after_bomb = 0
+        
+    def reset(self):
+        self.loss_history = []
+        self.reward_history = []
+        self.event_history = []
+        self.score = 0
+        self.global_step = 0
+        self.invalid_actions = 0
+        self.waited_for = 0
+        self.data = []
+        self.invalid_actions = 0
+        self.frames_after_bomb = 0
+        self.coordinate_history = deque([], 5)
+        self.random_actions = 0
+
+        
+    def add_loss(self,loss,):
+        self.loss_history.append(loss)
+        wandb.log({"loss_step": loss}) if WANDB_FLAG else None
+    
+    def add_reward(self,reward):
+        self.reward_history.append(reward)
+        self.score += reward
+        wandb.log({"reward_step": reward}) if WANDB_FLAG else None
+
+    def add_invalid_action(self):
+        self.invalid_actions += 1
+    def waited(self):
+        self.waited_for += 1
+       
+    def step(self):
+        self.global_step += 1 
+    
+    def log_wandb_end(self):
+        wandb.log({"mean_loss": np.mean(self.loss_history), "mean_reward": np.mean(self.reward_history),
+               "cumulative_reward": self.score,
+               "invalid_actions_per_game": self.invalid_actions}) if WANDB_FLAG else None
+        self.logger.info(f"END OF GAME: mean_loss: {np.mean(self.loss_history)}, cumulative_reward: {self.score}") if log_to_file else None
+        
+        
+        self.logger.info(f'Event stats:') if log_to_file else None
+        if WANDB_FLAG:
+            wandb.log({"global_step": self.global_step})
+        # Convert list of tuples to list of strings
+        event_strings = [item for tup in self.event_history for item in tup]
+
+        # Now you can use Counter on this list of strings
+        event_counts = Counter(event_strings)
+        for event, count in event_counts.items():
+            self.logger.info(f'{event}: {count}')if log_to_file else None
+            if WANDB_FLAG:
+                wandb.log({f"event_{event}": count})
+
+        self.logger.info("--------------------------------------")if log_to_file else None
+        
+        self.reset()
+        wandb.save(HYPER.MODEL_NAME) if WANDB_FLAG else None
+        
+    
+    def add_event(self,event):
+        self.event_history.append(event)
+        
+    def check_repetition(self):
+        # Check if agent is repeating actions, i.e going back and forth
+        if self.global_step > 2:
+            # Check specfically for left-right-left-right
+            if "MOVED_LEFT" in self.event_history[-2:] and "MOVED_RIGHT" in self.event_history[-4:-2]:
+                self.add_event("REPEATING_ACTIONS")
+                self.logger.info(f'Agent is repeating actions') if log_to_file else None
+                return True
+            if "MOVED_RIGHT" in self.event_history[-2:] and "MOVED_LEFT" in self.event_history[-4:-2]:
+                self.add_event("REPEATING_ACTIONS")
+                self.logger.info(f'Agent is repeating actions')if log_to_file else None
+                return True
+            if "MOVED_UP" in self.event_history[-2:] and "MOVED_DOWN" in self.event_history[-4:-2]:
+                self.add_event("REPEATING_ACTIONS") 
+                self.logger.info(f'Agent is repeating actions')
+                return True
+            if "MOVED_DOWN" in self.event_history[-2:] and "MOVED_UP" in self.event_history[-4:-2]:
+                self.add_event("REPEATING_ACTIONS")
+                self.logger.info(f'Agent is repeating actions') if log_to_file else None
+                return True
+            
+        
+    def push_data(self, transition):
+        # Add reward to reward history
+        transition = Transition(*transition)
+        self.add_reward(transition.reward)
+        self.data.append(transition)
+        
+    
+    def make_batch(self):
+        # Initialize lists to store batch data
+        batch = {
+            's': [],
+            'a': [],
+            'r': [],
+            's_prime': [],
+            'prob_a': [],
+            'done_mask': []
+        }
+
+        for transition in self.data:
+            s, a, r, s_prime, prob_a, done = transition
+
+            # Append data to respective lists
+            batch['s'].append(s)
+            batch['a'].append([a])
+            batch['r'].append([r])
+            batch['s_prime'].append(s_prime)
+            batch['prob_a'].append([prob_a])
+            done = 0 if done else 1
+            batch['done_mask'].append([done])
+
+        # Convert lists to numpy arrays
+        for key in batch.keys():
+            batch[key] = np.array(batch[key])
+
+        # Convert numpy arrays to PyTorch tensors
+        s = torch.tensor(batch['s'], dtype=torch.float)
+        a = torch.tensor(batch['a'])
+        r = torch.tensor(batch['r'])
+        s_prime = torch.tensor(batch['s_prime'], dtype=torch.float)
+        done_mask = torch.tensor(batch['done_mask'], dtype=torch.float)
+        prob_a = torch.tensor(batch['prob_a'])
+
+        # Clear the data buffer
+        self.data = []
+
+        return s, a, r, s_prime, done_mask, prob_a
+        
+    
 
 
+def train_net(self):
+    s, a, r, s_prime, done_mask, prob_a = self.values.make_batch()
+    
+
+    s = s.to(self.device)
+    a = a.to(self.device)
+    r = r.to(self.device)
+    s_prime = s_prime.to(self.device)
+    done_mask = done_mask.to(self.device)
+    prob_a = prob_a.to(self.device)
+    
+    if len(s_prime) ==0:
+        self.logger.info(f'No data to train on')
+        return
+    self.logger.info(f'Training on {len(s_prime)} samples')
+    for i in range(HYPER.N_EPOCH):
+        
+        td_target = r + HYPER.gamma * self.model.v(s_prime) * done_mask
+        delta = td_target - self.model.v(s)
+        delta = delta.detach().cpu().numpy()
+
+        advantage_lst = []
+        advantage = 0.0
+        for delta_t in delta[::-1]:
+            advantage = HYPER.gamma * HYPER.lmbda * advantage + delta_t[0]
+            advantage_lst.append([advantage])
+        advantage_lst.reverse()
+        advantage = torch.tensor(advantage_lst, dtype=torch.float).to(self.device)
+
+        pi = self.model.pi(s, softmax_dim=1)
+        pi_a = pi.gather(1,a)
+        ratio = torch.exp(torch.log(pi_a) - torch.log(prob_a))  # a/b == exp(log(a)-log(b))
+
+        surr1 = ratio * advantage
+        surr2 = torch.clamp(ratio, 1-HYPER.eps_clip, 1+HYPER.eps_clip) * advantage
+        loss = -torch.min(surr1, surr2) + F.smooth_l1_loss(self.model.v(s) , td_target.detach())
+
+        self.optimizer.zero_grad()
+        loss.mean().backward()
+        self.optimizer.step()  
+        self.values.add_loss(loss.mean().item())
 
 def setup_training(self):
     """
@@ -37,46 +254,73 @@ def setup_training(self):
 
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
-    # Example: Setup an array that will note transition tuples
-    # (s, a, r, s')
-    #self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)
-    self.memory = Memory(10000)
+    self.score = 0
+    if WANDB_FLAG:
+        wandb.init(project="bomberman", name=WANDB_NAME)
+        for key, value in HYPER.__dict__.items():
+            if not key.startswith("__"):
+                wandb.config[key] = value
+        wandb.watch(self.model)
+    self.optimizer = torch.optim.Adam(self.model.parameters(), lr=HYPER.learning_rate)
+    self.invalid_actions = 0
     
+    self.values = Values(logger=self.logger)
     self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    self.optimizer = optim.Adam(self.model.parameters(), lr=HYPER.learning_rate)
-    self.model.to(self.device)
-    self.model.score = 0
-    self.reward_history = []
-    self.loss_history = []
-    self.events_history = []
-    self.logger.info(f'Set up model on device: {self.device}')
-    if HYPER.WANDB:
-        wandb.init(project="bomberman", name="bomberman-PPO",
-                   config = HYPER._asdict(),
-                    save_code=True,
-                    ) 
-    
-    
-    self.obs = []
-    self.entropies = []
-    self.values = []
-    self.log_probs = []
-    self.rewards = []
-    self.dones = []
-    self.actions = []
+    self.logger.info(f'Using device: {self.device}')
+    self.model = self.model.to(self.device)
+    self.best_score = 0
    
-    self.loss_history = []
+          
+
+        
+
+
+def calculate_events_and_reward(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
+    self.values.step()
     
-    self.global_step = 0
-    self.n_games_played = 0
+    feature_state_old = state_to_features(self,old_game_state)
+    feature_state_new = state_to_features(self,new_game_state)
+    
+    
+    coordinate_old = old_game_state["self"][3]
+    self.values.coordinate_history.append(coordinate_old)
+    
+    if e.GOT_KILLED in events:
+        done = True
+    else:
+        done = False
+    self._done = done
+    action = ACTIONS.index(self_action)
+    prob_a = self.prob_a
+    
+    max_wait = settings.EXPLOSION_TIMER
+    if e.WAITED in events:
+        self.values.waited_for += 1
+    else:
+        self.values.waited_for = 0
+    if self.values.waited_for > max_wait:
+        events.append(WAITED_TOO_LONG)
+    
+    
+    if e.INVALID_ACTION in events:
+        self.values.add_invalid_action()
 
+    
+    
+    check_custom_events(self,events,action, feature_state_old, feature_state_new)
+    
+    self.values.add_event(events)
+    reward = reward_from_events(self,events)
+        
+    
+    
+    # flatten feature state again
+    feature_state_old = feature_state_old.flatten()
+    feature_state_new = feature_state_new.flatten()
+    
+    
 
-def one_hot(idx, num_actions=HYPER.N_ACTIONS):
-    return idx
-    one_hot = np.zeros(num_actions)
-    one_hot[idx] = 1
-    return one_hot
+    self.values.push_data((feature_state_old,action,reward/100.0,feature_state_new,prob_a,done))
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
     """
@@ -95,154 +339,20 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     :param new_game_state: The state the agent is in now.
     :param events: The events that occurred when going from  `old_game_state` to `new_game_state`
     """
-    self.global_step += 1
-    
-    
-    #feature_state_old = state_to_features(self, old_game_state)
-    #feature_state_new = state_to_features(self, new_game_state)
-    if e.GOT_KILLED in events:
-        done = True
-    else:
-        done = False
-    action = ACTIONS.index(self_action)
-    
-    reward = reward_from_events(self, events)
-    obs = self._obs
-    logprob = self._log_prob
-    value = self._value
-    entropy = self._entropies
-    #
-    self.obs.append(obs)
-    self.entropies.append(entropy)
-    self.values.append(value)
-    self.log_probs.append(logprob)
-    self.rewards.append(reward)
-    self.dones.append(done)
-    self.actions.append(one_hot(action))
-
-    #self.memory.push(obs,action,value,reward,logprob,entropy,done)
-       
-    #self.model.put_data((feature_state_old, action, reward / 100.0, feature_state_new, prob_a, done))
-    #self.memory.push(feature_state_old, action, reward / 100.0, feature_state_new, prob_a, done)
-    #self.memory.push(feature_state_old, action, 0, feature_state_new, 0, done)
-    self.model.score += reward
-    #self.logger.info(f'Score: {self.model.score}')
-    #self.logger.debug(f'Encountered game event(s) {", ".join(map(repr, events))} in step {new_game_state["step"]}')
-    
-    # Store events for logging
-    self.events_history.append(events)
-
-    # Bootstrao values
-    next_obs = state_to_features(self, new_game_state)
-    next_obs = torch.tensor(next_obs, dtype=torch.float).to(self.device)
-    with torch.no_grad():
-        next_value = self.model.get_value(next_obs).reshape(1,-1)
-        # Convert tensor TODO: this is slow
-        #self.rewards = torch.tensor(self.rewards, dtype=torch.float).to(self.device)
-        #self.dones = torch.tensor(self.dones, dtype=torch.float).to(self.device)
-        #self.values = torch.tensor(self.values, dtype=torch.float).to(self.device)
-        if HYPER.GAE:
-            self.advantages = [0 for _ in range(len(self.rewards))]
-            lastgaelam = 0
-        # TODO: Check if this is correct, what is Num_steps?
-            steps = len(self.rewards)
-            for t in reversed(range(steps)):
-                #self.logger.info(f'Bootstrapping: t: {t}')
-                if t == steps- 1:
-                    next_non_terminal = 1.0 - done
-                    nextvalues = next_value
-                else:
-                    next_non_terminal = 1.0 - self.dones[t+1]
-                    nextvalues = self.values[t+1]
-                delta = self.rewards[t] + HYPER.gamma * nextvalues * next_non_terminal - self.values[t]
-                self.advantages[t] = lastgaelam = delta + HYPER.gamma * HYPER.lmbda * next_non_terminal * lastgaelam
-            self.returns = self.advantages + self.values
-        else:
-            raise NotImplementedError #TODO: Implement this
-    
-
-
-def optimize(self):
-    self.logger.info(f'Optimizing...')  
-    b_obs = torch.tensor(self.obs, dtype=torch.float).to(self.device)
-    b_logprobs = torch.tensor(self.log_probs, dtype=torch.float).to(self.device)
-    b_values = torch.tensor(self.values, dtype=torch.float).to(self.device)
-    b_returns = torch.tensor(self.returns, dtype=torch.float).to(self.device)
-    b_advantages = torch.tensor(self.advantages, dtype=torch.float).to(self.device)
-    b_dones = torch.tensor(self.dones, dtype=torch.float).to(self.device)
-    
-    b_actions = torch.tensor(self.actions, dtype=torch.long).to(self.device)
-    b_actions = b_actions#.reshape(-1,HYPER.N_ACTIONS)
-    
-    #Optimize policy for K epochs:
-    inds = np.arange(HYPER.BATCH_SIZE)
-    clipfracs = []
-    if len(self.obs) < HYPER.BATCH_SIZE:
-        self.logger.info(f'Not enough samples to train. Skipping...')
-        return
-    for i in range(HYPER.K_epoch):
-        np.random.shuffle(inds)
-        #TODO was ist wenn nicht genügend samples da sind?
-        for start in range(0, HYPER.BATCH_SIZE, HYPER.MINI_BATCH_SIZE):
-            end = start + HYPER.MINI_BATCH_SIZE
-            minibatch_ind = inds[start:end]
-       
-            # convert one hot to int: TODO CHECK IF THIS IS TRUE
-           # b_actions = torch.argmax(b_actions, dim=1)
+    if self.RANDOM_ACTION:
+        events.append("RANDOM_ACTION")
+        self.values.random_actions += 1
+    calculate_events_and_reward(self, old_game_state, self_action, new_game_state, events)
+    if not self._done:
+        if TRAIN_EVERY_N_STEPS > 0:
+            if self.values.global_step % TRAIN_EVERY_N_STEPS== 0:
+                
+                if train_in_round:
+                    train_net(self)
+                    self.values.log_wandb_end()
+                    
             
-            _,newlogprob,entropy,newvalue=self.model.get_action_and_value(b_obs[minibatch_ind], b_actions.long()[minibatch_ind])
-           
-            
-            
-            logratio = newlogprob - b_logprobs[minibatch_ind]
-            ratio = torch.exp(logratio)
-            
-            with torch.no_grad():
-                # Calculate approximate kl divergence
-                old_approx_kl = (-logratio).mean()
-                approx_kl = ((ratio-1)-logratio).mean()
-                clipfracs +=[((ratio - 1.0).abs() > HYPER.CLIP_COEFF).float().mean().item()]
 
-            mb_advantages = b_advantages[minibatch_ind]
-            if HYPER.NORMALIZE_ADVANTAGE:
-                    mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8)
-
-            # Calculate Policy Loss
-            policy_loss1 = -ratio * mb_advantages
-            policy_loss2 = -mb_advantages * torch.clamp(ratio, 1.0 - HYPER.CLIP_COEFF, 1.0 + HYPER.CLIP_COEFF)
-            policy_loss = torch.max(policy_loss1, policy_loss2).mean()
-            
-            # Calculate Value Loss
-            newvalue = newvalue.reshape(-1)
-            if HYPER.CLIP_VALUE_LOSS:
-                value_loss_unclipped = (newvalue - b_returns[minibatch_ind])**2
-                value_clipped = b_values[minibatch_ind] + torch.clamp(newvalue - b_values[minibatch_ind], -HYPER.CLIP_COEFF, HYPER.CLIP_COEFF)
-                value_loss_clipped = (value_clipped - b_returns[minibatch_ind])**2
-                value_loss_max = torch.max(value_loss_unclipped, value_loss_clipped)
-                value_loss = 0.5 * value_loss_max.mean()
-            else:
-                value_loss = 0.5 * (newvalue - b_returns[minibatch_ind])**2
-            
-            entropy_loss = entropy.mean()
-            loss = policy_loss - HYPER.ENTROPY_LOSS_COEFF * entropy_loss + HYPER.VALUE_LOSS_COEFF * value_loss
-            # Take gradient step
-            self.optimizer.zero_grad()
-            loss.backward()
-            nn.utils.clip_grad_norm_(self.model.parameters(), HYPER.MAX_GRAD_NORM)
-            self.optimizer.step()
-            wandb.log({"loss": loss.item()})
-            wandb.log({"policy_loss": policy_loss.item()})
-            wandb.log({"value_loss": value_loss.item()})
-            wandb.log({"entropy_loss": entropy_loss.item()})
-            wandb.log({"approx_kl": approx_kl.item()})
-            wandb.log({"value": b_values[minibatch_ind].mean().item()})
-            wandb.log({"value_pred": newvalue.mean().item()})
-
-            
-            self.loss_history.append(loss.item())
-            #TODO: maybe implement early stopping with KL divergence
-            #if approx_kl > 1.5 * HYPER.target_kl:
-            #    break
 def end_of_round(self, last_game_state: dict, last_action: str, events: List[str]):
     """
     Called at the end of each game or when the agent died to hand out final rewards.
@@ -256,41 +366,140 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
 
     :param self: The same object that is passed to all of your callbacks.
     """
-   # self.logger.debug(f'Encountered event(s) {", ".join(map(repr, events))} in final step')
     
-    # Train the model
-    #self.logger.info(f'Starting to train...')
+    calculate_events_and_reward(self, last_game_state, last_action, last_game_state, events)
     
-    self.n_games_played += 1
-    
-    
-    # Optimize the model every 5 games
-    if self.n_games_played % 20 == 0:
-        optimize(self)
-        self.logger.info(f'Training finished')
+    train_steps = TRAIN_EVERY_N_STEPS
+    if TRAIN_EVERY_END_OF_ROUND:
+        train_steps = 1
+    if self.values.global_step % train_steps == 0:
+
+        train_net(self)
         
-        # Store the model
-        with open("my-saved-model.pt", "wb") as file:
-            pickle.dump(self.model, file)
+        # Log and reset values
+        self.values.log_wandb_end()
         
-        # Log important parameters to wandb TODO add more
-        wandb.log({"cumulative_reward": self.model.score})
-        wandb.log({"mean_reward": np.mean(self.reward_history)})
-        wandb.log({"mean_loss": np.mean(self.loss_history)})
-        self.logger.info(f'End of round: Reward_history: {self.reward_history}')
-        #self.logger.info(f'End of round: event_history: {self.events_history}')
-    # self.logger.info(f'End of round: action_histor: {[ACTIONS[a] for a in self.actions]}')
-        # Survived n steps
-        self.logger.info(f'End of round: Survived {last_game_state["step"]} steps')
-        wandb.log({"survived steps": last_game_state["step"]})
-
-        self.model.score = 0
-        self.reward_history = []
-        self.loss_history = []
-        self.events_history = []
+        # Reset values defined in setup
+        self.bomb_history = deque([], 5)
+        self.coordinate_history = deque([], 20)
+        agent_score = last_game_state["self"][1]
+        if agent_score > self.best_score:
+            self.best_score = agent_score
+            self.logger.info(f'best score {agent_score}')
+        torch.save(self.model.state_dict(), HYPER.MODEL_NAME)
+            
+   
 
 
 
+def check_custom_events(self, events: List[str],action, features_old, features_new):
+    # Check if agent is closer to coin
+    self.values.frames_after_bomb += 1
+    action = ACTIONS[action]
+    if action == "BOMB":
+        self.values.frames_after_bomb = 0
+    
+    '''
+    nearest_coin_distance_old,coin_angle_old, direction_coin_old_y, direction_coin_old_x, bomb_threat_old, time_to_explode_old,\
+        can_drop_bomb_old, is_next_to_opponent_old, is_on_bomb_old, should_drob_bomb_old,\
+             is_in_loop_old, nearest_bomb_distance_old,\
+                    blast_count_up_old, blast_count_down_old, blast_count_left_old,blast_count_right_old, \
+                        danger_level_up_old, danger_level_down_old, danger_level_left_old, danger_level_right_old,*local_view_old = features_old
+    
+    nearest_coin_distance_new, coin_angle_new, direction_coin_new_y, direction_coin_new_x, bomb_threat_new, time_to_explode_new,\
+        can_drop_bomb_new, is_next_to_opponent_new, is_on_bomb_new, should_drob_bomb_new,\
+             is_in_loop_new, nearest_bomb_distance_new,\
+                    blast_count_up_new, blast_count_down_new, blast_count_left_new,blast_count_right_new, \
+                        danger_level_up_new, danger_level_down_new, danger_level_left_new, danger_level_right_new ,*local_view_new= features_new
+    '''
+    valid_direction_up_old, valid_direction_down_old,valid_direction_left_old,valid_direction_right_old, nearest_coin_distance_old, coin_angle_old, direction_coin_old_y, direction_coin_old_x, bomb_threat_old, time_to_explode_old,\
+    can_drop_bomb_old, is_next_to_opponent_old, is_on_bomb_old, is_in_loop_old,\
+    nearest_bomb_distance_old, blast_count_up_old, blast_count_down_old, blast_count_left_old, blast_count_right_old, \
+    danger_level_up_old, danger_level_down_old, danger_level_left_old, danger_level_right_old, *local_view_old = features_old
+
+    valid_direction_up_new, valid_direction_down_new,valid_direction_left_new,valid_direction_right_new,nearest_coin_distance_new, coin_angle_new, direction_coin_new_y, direction_coin_new_x, bomb_threat_new, time_to_explode_new,\
+        can_drop_bomb_new, is_next_to_opponent_new, is_on_bomb_new, is_in_loop_new,\
+        nearest_bomb_distance_new, blast_count_up_new, blast_count_down_new, blast_count_left_new, blast_count_right_new, \
+        danger_level_up_new, danger_level_down_new, danger_level_left_new, danger_level_right_new, *local_view_new = features_new
+            
+    if "BOMB_EXPLODED" in events:
+        # Check if Bomb did something usefull
+        if not "CRATE_DESTROYED" in events or not "COIN_FOUND" in events or not "KILLED_OPPONENT" in events:
+            events.append("BOMB_WAS_USELESS")
+    #Check if agent chose valid direction
+    if action == "UP" and not valid_direction_up_old:
+        events.append("AGENT_CHOSE_INVALID_DIRECTION")
+    if action == "DOWN" and not valid_direction_down_old:
+        events.append("AGENT_CHOSE_INVALID_DIRECTION")
+    if action == "LEFT" and not valid_direction_left_old:
+        events.append("AGENT_CHOSE_INVALID_DIRECTION")
+    if action == "RIGHT" and not valid_direction_right_old:
+        events.append("AGENT_CHOSE_INVALID_DIRECTION")
+    
+    
+    if nearest_coin_distance_new < nearest_coin_distance_old:
+        events.append(CLOSER_TO_COIN)
+    else: 
+        events.append(FURTHER_FROM_COIN)
+        
+    # Check if bomb is escapable
+    if is_on_bomb_new and not is_on_bomb_old:
+        events.append(ESCAPABLE_BOMB)
+    
+    # Check if Agent registered bomb threat and escaped
+    if bomb_threat_old and not bomb_threat_new:
+        events.append(ESCAPED_BOMB)
+    # Check if Agent registered bomb threat and went towards it
+    if nearest_bomb_distance_old > nearest_bomb_distance_new:
+        events.append(GOING_TOWARDS_BOMB)
+    # Check if Agent registered bomb threat and went away from it
+    if nearest_bomb_distance_old < nearest_bomb_distance_new:
+        events.append(GOING_AWAY_FROM_BOMB)
+    
+    coordinate_old = self.values.coordinate_history[-1]
+    if coordinate_old in self.values.coordinate_history:
+        events.append(IS_IN_LOOP)
+    
+    # Check if agent reduced blast count in certain direction
+    if blast_count_up_new < blast_count_up_old:
+        # Check if agent took action to reduce blast count
+        if action == "DOWN":
+            events.append(BLAST_COUNT_UP_DECREASED)
+    if blast_count_down_new < blast_count_down_old:
+        # Check if agent took action to reduce blast count
+        if action == "UP":
+            events.append(BLAST_COUNT_DOWN_DECREASED)
+            
+    if blast_count_left_new < blast_count_left_old:
+        # Check if agent took action to reduce blast count
+        if action == "RIGHT":
+            events.append(BLAST_COUNT_LEFT_DECREASED)
+    
+    if blast_count_right_new < blast_count_right_old:
+        # Check if agent took action to reduce blast count
+        if action == "LEFT":
+            events.append(BLAST_COUNT_RIGHT_DECREASED)
+            
+    # Check if Agent collected coin while bomb was placed
+    if self.values.frames_after_bomb < 5 and e.COIN_COLLECTED in events:
+        events.append(DROPPED_BOMB_AND_COLLECTED_COIN_MEANWHILE)
+    # Check if agent went into bomb radius and died
+    if e.GOT_KILLED:
+        if danger_level_up_old == 1 and action == "UP":
+            events.append(WENT_INTO_BOMB_RADIUS_AND_DIED)
+        if danger_level_down_old == 1 and action == "DOWN":
+            events.append(WENT_INTO_BOMB_RADIUS_AND_DIED)
+        if danger_level_left_old == 1 and action == "LEFT":
+            events.append(WENT_INTO_BOMB_RADIUS_AND_DIED)
+        if danger_level_right_old == 1 and action == "RIGHT":
+            events.append(WENT_INTO_BOMB_RADIUS_AND_DIED)
+            
+    if DEBUG_EVENTS:
+        self.logger.info(f'Events: {events}')
+            
+    
+        
+    
 
 def reward_from_events(self, events: List[str]) -> int:
     """
@@ -299,160 +508,39 @@ def reward_from_events(self, events: List[str]) -> int:
     Here you can modify the rewards your agent get so as to en/discourage
     certain behavior.
     """
+    # Count number of invalid actions
+    if e.INVALID_ACTION in events:
+        self.invalid_actions += 1
     
-   
-
-    """_summary_
-
-   
-    game_rewards = {
-    e.COIN_COLLECTED: 2.0,
-    e.KILLED_OPPONENT: 6.0,
-    e.KILLED_SELF: -2.0,
-    e.INVALID_ACTION: -0.5,
-    e.WAITED: -0.1,
-    e.MOVED_LEFT: 0.1,
-    e.MOVED_RIGHT: 0.1,
-    e.MOVED_UP: 0.1,
-    e.MOVED_DOWN: 0.1,
-    e.BOMB_DROPPED: 0.5,
-    e.BOMB_EXPLODED: 0.15,
-    e.CRATE_DESTROYED: 0.5,
-    e.COIN_FOUND: 1.0,
-    e.SURVIVED_ROUND: 5.0,
-    e.GOT_KILLED: -2.0,
+    coin_rewards_loot_crate = {
+        e.COIN_COLLECTED: 60,
+        CLOSER_TO_COIN: 5,
+        FURTHER_FROM_COIN:-10,
+        e.INVALID_ACTION:-10,
+        e.CRATE_DESTROYED: 20,
+        e.COIN_FOUND: 15,
+        WAITED_TOO_LONG:-20,
+        e.KILLED_SELF:-50,
+        ESCAPED_BOMB: 0,
+        GOING_TOWARDS_BOMB:-25,
+        GOING_AWAY_FROM_BOMB: 5,
+        IS_IN_LOOP: -20,
+        IN_BLAST_RADIUS:-50,
+        BLAST_COUNT_UP_DECREASED: 5,
+        BLAST_COUNT_DOWN_DECREASED: 5,
+        BLAST_COUNT_LEFT_DECREASED: 5,
+        BLAST_COUNT_RIGHT_DECREASED: 5,
+        WENT_INTO_BOMB_RADIUS_AND_DIED: -25,
+        AGENT_CHOSE_INVALID_DIRECTION: 0, 
+        BOMB_WAS_USELESS:-10,
     }
+    coin_rewards = coin_rewards_loot_crate
     reward_sum = 0
     for event in events:
-        if event in game_rewards:
-            reward_sum += game_rewards[event]
-    #self.logger.info(f"Awarded {reward_sum} for events {', '.join(events)}")
+        if event in coin_rewards:
+            reward_sum += coin_rewards[event]
     
-    # Give reward depending on how long the agent survived
-    
-    
-    self.reward_history.append(reward_sum)
-    return reward_sum*0.1
-   
-    """
-    game_rewards = {
-        e.COIN_COLLECTED: 200,
-        e.KILLED_OPPONENT: 600,
-        e.KILLED_SELF: -400,
-        # e.BOMB_DROPPED: 10,
-        # e.COIN_FOUND: 1,
-        # e.CRATE_DESTROYED: 10,
-        e.INVALID_ACTION: -50,
-        # e.SURVIVED_ROUND: 100,
-        BOMB_DESTROYS_CRATE: 40,
-        ESCAPABLE_BOMB: 75,
-        # e.MOVED_LEFT: 1,
-        # e.MOVED_DOWN: 1,
-        # e.MOVED_RIGHT: 1,
-        # e.MOVED_UP: 1,
-        # e.WAITED: 0,
-        WAITED_TOO_LONG: -350,
-        CLOSER_TO_COIN: 40,
-        IN_BLAST_RADIUS: -7,
-        # e.BOMB_DROPPED: -1,
-        FURTHER_FROM_COIN: -30,
-    }
-    reward_sum = 0
-    for event in events:
-        if event in game_rewards:
-            reward_sum += game_rewards[event]
-    self.logger.info(f"Awarded {reward_sum} for events {', '.join(events)}")
-    # Useless bomb
-
-    if e.BOMB_DROPPED in events and BOMB_DESTROYS_CRATE not in events:
-        reward_sum -= 600
-        # print("useless")
-    # Inescapable bomb
-    if e.BOMB_DROPPED in events and ESCAPABLE_BOMB not in events:
-        reward_sum += game_rewards[e.KILLED_SELF]
-    self.reward_history.append(reward_sum)
-    return reward_sum*0.01
+    return reward_sum
 
 
 
-#-------------------------------- TODO
-
-CLOSER_TO_COIN = "CLOSER_TO_COIN"
-FURTHER_FROM_COIN = "FURTHER_FROM_COIN"
-ESCAPABLE_BOMB = "ESCAPABLE_BOMB"
-BOMB_DESTROYS_CRATE = "BOMB_DESTROYS_CRATE"
-WAITED_TOO_LONG = "WAITED_TOO_LONG"
-IN_BLAST_RADIUS = "IN_BLAST_RADIUS"
-
-from .callbacks import get_blast_coords
-
-def reward_coin_distance(old_game_state, new_game_state, events):
-    if old_game_state is None or new_game_state is None:
-        return
-
-    old_pos = np.array(old_game_state["self"][-1])
-    new_pos = np.array(new_game_state["self"][-1])
-    old_coins = np.array(old_game_state["coins"])
-    new_coins = np.array(new_game_state["coins"])
-
-    persistent_coins = old_coins[np.all(np.isin(old_coins, new_coins))]
-
-    if persistent_coins.size == 0:
-        return
-    else:
-        (persistent_coins,) = persistent_coins
-    # Calculate old distances to all persistent coins
-    old_distances = np.sqrt(np.sum((persistent_coins - old_pos) ** 2, axis=-1))
-    # Find the index of the previous closest coin
-    closest_coin_index = np.argmin(old_distances)
-    # Get the distance to this previously closest coin now
-    new_distance = np.sqrt(
-        np.sum(((persistent_coins[closest_coin_index] - new_pos) ** 2))
-    )
-    # Also get the old distance.
-    # Should be the minimum of `old_distances`.
-    old_distance = old_distances[closest_coin_index]
-    if new_distance > old_distance:
-        events.append(FURTHER_FROM_COIN)
-
-    elif new_distance < old_distance:
-        events.append(CLOSER_TO_COIN)
-
-
-def punish_long_wait(self, events):
-    max_wait = settings.EXPLOSION_TIMER
-    if e.WAITED in events:
-        self.waited_for += 1
-    else:
-        self.waited_for = 0
-    if self.waited_for > max_wait:
-        events.append(WAITED_TOO_LONG)
-
-
-def check_placed_bomb(old_features, new_game_state, events):
-    escapable_bomb = False
-    destroy_crate = False
-    field = new_game_state["field"]
-    name, score, is_bomb_possible, (player_x, player_y) = new_game_state["self"]
-    if "BOMB_DROPPED" in events:
-        for bomb in new_game_state["bombs"]:
-            (bomb_x, bomb_y), timer = bomb
-            if [bomb_x, bomb_y] == [player_x, player_y]:
-                if old_features is not None:
-                    escapable_bomb = bool(old_features[0][4] > 0)
-                blast_coord = get_blast_coords(bomb, field)
-                for coord in blast_coord:
-                    if field[coord] == 1:
-                        destroy_crate = True
-                        return destroy_crate, escapable_bomb
-    return destroy_crate, escapable_bomb
-
-
-def check_blast_radius(game_state, events):
-    fields = game_state["field"]
-    _, _, _, (player_x, player_y) = game_state["self"]
-    for bomb in game_state["bombs"]:
-        blast_coord = get_blast_coords(bomb, fields)
-        if (player_x, player_y) in blast_coord:
-            events.append(IN_BLAST_RADIUS)
-            return
