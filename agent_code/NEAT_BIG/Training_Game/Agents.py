@@ -498,7 +498,7 @@ class Neat_Agent:
     def act(self, game_state):
         features = self.state_to_feature(game_state)
         output = self.net.activate(features)
-        return ACTIONS[int(max(output))]
+        ACTIONS[output.index(max(output))]
         
 
 

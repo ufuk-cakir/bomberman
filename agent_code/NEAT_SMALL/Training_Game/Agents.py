@@ -490,8 +490,13 @@ class Neat_Agent:
         for x in range(17):
             for y in range(17):
                 if game_state['explosion_map'][x,y] > 0:
-                    feature_map = 10 + game_state['explosion_map'][x,y]
+                    feature_map[x,y] = 10 + game_state['explosion_map'][x,y]
 
+        self_state = game_state['self']
+        if self_state[3]:
+            feature_map[self_state[4]] = 100
+        else:
+            feature_map[self_state[4]] = 101
         return feature_map.flatten()
     
     def update_score(self, item):
@@ -503,7 +508,7 @@ class Neat_Agent:
     def act(self, game_state):
         features = self.state_to_feature(game_state)
         output = self.net.activate(features)
-        return ACTIONS[int(max(output))]
+        return ACTIONS[output.index(max(output))]
         
 
 

@@ -23,7 +23,7 @@ def setup(self):
 
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
-    with open("winner.nt", "rb") as f:
+    with open("winner_1000.nt", "rb") as f:
         winner = pickle.load(f)
     
     local_dir = os.path.dirname(__file__)
@@ -268,6 +268,3 @@ def act(self, game_state: dict) -> str:
     features = state_to_features(self, game_state)
     output = self.model.activate(features)
     return ACTIONS[output.index(max(output))]
-
-    # return action
-    

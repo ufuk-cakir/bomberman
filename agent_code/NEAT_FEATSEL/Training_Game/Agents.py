@@ -33,6 +33,9 @@ class Peacful_Agent:
     def act(self, game_state):
         return np.random.choice(['RIGHT', 'LEFT', 'UP', 'DOWN'])
     
+    def set_custom_events(self):
+        return
+    
     def add_event(self, event):
         self.events.append(event)
 
@@ -64,6 +67,9 @@ class Coin_Collector_Agent:
 
     def add_event(self, event):
         self.events.append(event)
+
+    def set_custom_events(self):
+        return
 
     
     def update_score(self, item):
@@ -252,6 +258,9 @@ class Rule_Based_Agent:
     
     def add_event(self, event):
         self.events.append(event)
+
+    def set_custom_events(self):
+        return
 
 
     def look_for_targets(self,free_space, start, targets):
@@ -452,6 +461,7 @@ class Neat_Agent:
         self.train = True
         self.round = 0
         self.coordinate_history = deque([], 20)
+        self.prev_game_state = 0
 
 
     def add_event(self, event):
@@ -459,40 +469,42 @@ class Neat_Agent:
 
     def get_state(self):
         return Neat_Agent, self.round, self.score, self.bombs_left, (self.x, self.y), self.dead
-    
-    '''def state_to_feature(self, game_state:dict):
-        """
-        Converts game state with varying size to features of fixed size 1180"""
 
-        game_state_map = np.zeros((17,17))
+    def set_custom_events(self, coins, bombs, explosions):
+        if self.prev_game_state != 0:
+            prev_position = self.prev_game_state[4]
+            current_position = (self.x, self.y)
 
-        game_state_map[game_state['field'] == -1] = -1
-        game_state_map[game_state['field'] == 1] == 1
+            prev_coins_distance = [abs(coin.x - prev_position[0]) + abs(coin.y - prev_position[1]) for coin in coins]
+            current_coins_distance = [abs(coin.x - current_position[0]) + abs(coin.y - current_position[1]) for coin in coins]
+            if min(current_coins_distance) < min(prev_coins_distance):
+                self.events.append(CLOSER_TO_COIN)
+            if min(current_coins_distance) > min(prev_coins_distance):
+                self.events.append(FURTHER_FROM_COIN)
 
-        for (x,y) in game_state['coins']:
-            game_state_map[x,y] = 4
+            is_in_loop = 1 if self.coordinate_history.count((current_position[0], current_position[1])) > 3 else 0
+            if is_in_loop:
+                self.events.append(IS_IN_LOOP)
 
-        for (type, round, score, bombs, (x,y), dead) in game_state['others']:
-            if not dead and bombs:
-                game_state_map[x,y] = 2
-            if not dead and not bombs:
-                game_state_map[x,y] = 3
-        
-        for (x,y),t in game_state['bombs']:
-            game_state_map[x,y] = 5 + t
-        
-        for x in range(game_state['explosion_map'].shape[0]):
-            for y in range(game_state['explosion_map'].shape[1]):
-                if game_state['explosion_map'][x,y] > 0:
-                    game_state_map[x,y] = 10 + game_state['explosion_map'][x,y]
+            prev_bombs_distance = [abs(bomb.x - prev_position[0]) + abs(bomb.y - prev_position[1]) for bomb in bombs]
+            current_bombs_distance = [abs(bomb.x - current_position[0]) + abs(bomb.y - current_position[1]) for bomb in bombs]
+            
+            explosion_coords = []
+            for explosion in explosions:
+                explosion_coords += explosion.blast_coords
+            
+            if current_position in explosions:
+                self.events.append(IN_BLAST_RADIUS)
+            if prev_bombs_distance != [] and current_bombs_distance != []:
+                if min(prev_bombs_distance) > min(current_bombs_distance):
+                    self.events.append(GOING_AWAY_FROM_BOMB)
+                if min(prev_bombs_distance) < min(current_bombs_distance):
+                    self.events.append(GOING_TOWARDS_BOMB)
 
-    
-        self_state = np.array([int(game_state['self'][3]), game_state['self'][4][0], game_state['self'][4][1]])
+                if prev_position in explosions and current_position not in explosions:
+                    self.events.append(ESCAPED_BOMB)
 
-        features = np.concatenate((self_state,  game_state_map.flatten()), axis = None)
-        
-        return features'''
-
+        return
 
 
     def state_to_features(self,game_state: dict) -> np.array:
@@ -718,6 +730,7 @@ class Neat_Agent:
     def act(self, game_state):
         features = self.state_to_features(game_state)
         output = self.net.activate(features)
+        self.prev_game_state = self.get_state()
         return ACTIONS[output.index(max(output))]
         
 

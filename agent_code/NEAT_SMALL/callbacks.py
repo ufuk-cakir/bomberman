@@ -25,16 +25,8 @@ def setup(self):
 
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
-    """
-    if self.train or not os.path.isfile("my-saved-model.pt"):
-        self.logger.info("Setting up model from scratch.")
-        self.model = PPO2(HYPER)
-    else:
-        self.logger.info("Loading model from saved state.")
-        with open("my-saved-model.pt", "rb") as file:
-            self.model = pickle.load(file)
-    """
-    with open("winner.nt", "rb") as f:
+    with open("winner_uniform.nt", "rb") as f:
+    #with open("winner_random.nt", "rb") as f:
         winner = pickle.load(f)
     
     local_dir = os.path.dirname(__file__)
@@ -76,9 +68,9 @@ def state_to_feature(game_state:dict):
     for x in range(17):
         for y in range(17):
             if game_state['explosion_map'][x,y] > 0:
-                feature_map = 10 + game_state['explosion_map'][x,y]
+                feature_map[x,y] = 10 + game_state['explosion_map'][x,y]
 
-    return feature_map
+    return feature_map.flatten()
 
 
 def act(self, game_state: dict) -> str:
@@ -92,7 +84,4 @@ def act(self, game_state: dict) -> str:
     """
     features = state_to_feature(game_state)
     output = self.model.activate(features)
-    return ACTIONS[int(max(output))]
-
-    # return action
-    
+    return ACTIONS[output.index(max(output))]    
