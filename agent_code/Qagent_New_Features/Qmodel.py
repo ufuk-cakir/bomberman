@@ -35,17 +35,14 @@ Hyperparameters = namedtuple("Hyperparameters", [
     "MLP_NUM_LAYERS",
 ])
 
+
+
+
+
 SIZE_OF_STATE_VECTOR = 23
 
 HYPER = Hyperparameters(
-    # BATCH_SIZE is the number of transitions sampled from the replay buffer
-    # GAMMA is the discount factor as mentioned in the previous section
-    # EPS_START is the starting value of epsilon
-    # EPS_END is the final value of epsilon
-    # EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
-    # TAU is the update rate of the target network
-    # LR is the learning rate of the ``AdamW`` optimizer
-    BATCH_SIZE=128,
+    BATCH_SIZE=64,
     GAMMA=0.99,
     EPS_START=0.9,
     EPS_END=0.05,
@@ -56,6 +53,14 @@ HYPER = Hyperparameters(
     N_FEATURES= SIZE_OF_STATE_VECTOR,
     MLP_HIDDEN_SIZE=128,
     MLP_NUM_LAYERS=2,)
+
+
+
+import wandb
+
+
+# Events
+PLACEHOLDER_EVENT = "PLACEHOLDER"
 
 
 class Memory(object):

@@ -19,6 +19,15 @@ import wandb
 #set scenario for rewards
 scenario = "loot-crate"
 
+#count steps in current batch
+#batch_count = 0
+
+# Events
+PLACEHOLDER_EVENT = "PLACEHOLDER"
+
+
+
+
 def setup_training(self):
     """
     Initialise self for training purpose.
@@ -39,8 +48,12 @@ def setup_training(self):
     #logging variables
     self.log_crates = 0
     self.log_coins = 0
-
+    self.log_kills = 0
     
+
+
+
+
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
     """
     Called once per step to allow intermediate rewards based on game events.
@@ -61,7 +74,6 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     self.events_history.append(events)
     self.avtion_history.append(self_action)
     
-    #get features from the game state of the previous and current step
     feature_state_old = state_to_features(self,old_game_state)
     feature_state_new = state_to_features(self,new_game_state)
     
@@ -72,7 +84,6 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
         done = False
     action = ACTIONS.index(self_action)
 
-    #get custom events from features
     check_custom_events(self, events, action, feature_state_old, feature_state_new)
 
     reward = reward_from_events(self,events)
@@ -91,8 +102,10 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     self.score += reward
     
     # Optimize Fulley if batch size is reached, otherwise single
-    if len(self.memory) < HYPER.BATCH_SIZE:
+    #batch_count =+ 1
+    if len(self.memory) > HYPER.BATCH_SIZE: #batch_count == HYPER.BATCH_SIZE: #len(self.memory) % HYPER.BATCH_SIZE == 1:
         optimize_model(self)
+        #batch_count = 0
         
     else:
        optimize_model_single(self, (feature_state_old, action, feature_state_new, reward))   
@@ -135,6 +148,7 @@ def optimize_model_single(self, transition):
     if(LOG_WANDB):
         #wandb.log({"loss": loss.item(), "cumulative_reward": self.score})
         wandb.log({"loss": loss.item()})
+
     #     #wandb.watch(self.policy_net)
     
     # Compute gradient statistics
@@ -149,6 +163,7 @@ def optimize_model(self):
         self.logger.info(f'Not enough samples in memory to optimize model.')
         return
     self.logger.info(f'Optimizing model Fulle...')
+    #self.logger.info(f'Optimizing model...')
     transitions = self.memory.sample(HYPER.BATCH_SIZE)
     batch = Transition(*zip(*transitions))
 
@@ -217,7 +232,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
 
     :param self: The same object that is passed to all of your callbacks.
     """
-    # Add final events to game events
+    # Add final events to game events TODO: REWRITE
     state_final = state_to_features(self,last_game_state)
     state = torch.tensor(state_final, device=self.device, dtype=torch.float).unsqueeze(0)
     final_state = None
@@ -231,50 +246,43 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     # do final optimization step
     optimize_model(self)
     
-    #save models
     with open("policy_net.pt", "wb") as file:
         pickle.dump(self.policy_net, file)
     with open("target_net.pt", "wb") as file:
         pickle.dump(self.target_net, file)
     
-    #log Info about final step and round reward
     self.logger.debug(f'Encountered event(s) {", ".join(map(repr, events))} in final step')
     self.logger.info(f'End of round with cumulative reward {self.score}')
     self.logger.info("Saved model.")
     
-    #log Metrics of the round to wandb
     if LOG_WANDB:
         wandb.log({"final_cumulative_reward": self.score}) 
         wandb.log({"coins collected": self.log_coins})
         wandb.log({"crates destroyed": self.log_crates})
+        wandb.log({"opponents killed": self.log_kills})
         wandb.log({"steps survived": len(self.memory)})
     self.score = 0
     self.memory = Memory(10000)
     self.log_crates = 0
     self.log_coins = 0
+    self.log_kills = 0
     
 
-#Define Custom Rewards
+#Custom Rewards
 
-#Check if agent moves towards coin
+
+REPEATING_ACTIONS = "REPEATING_ACTIONS"
 CLOSER_TO_COIN = "CLOSER_TO_COIN"
 FURTHER_FROM_COIN = "FURTHER_FROM_COIN"
-
-#check if in bomb range and can escape
 ESCAPABLE_BOMB = "ESCAPABLE_BOMB"
-
-#Check if agent destroyed a crate and survived the explosion
 CRATE_DESTROYED_AND_SURVIVED = "CRATE_DESTROYED_AND_SURVIVED"
 
-# Check if agent acts according to feature "direction_to_target"
 TOOK_DIRECTION_TOWARDS_TARGET = "TOOK_DIRECTION_TOWARDS_TARGET"
 TOOK_DIRECTION_AWAY_FROM_TARGET = "TOOK_DIRECTION_AWAY_FROM_TARGET"
 NO_TARGET_DIRECTION = "NO_TARGET_DIRECTION"
 
-# Check if agent is repeating actions
 IS_IN_LOOP = "IS_IN_LOOP"
 GOT_OUT_OF_LOOP = "GOT_OUT_OF_LOOP"
-REPEATING_ACTIONS = "REPEATING_ACTIONS"
 
 # Wheter dropped bomb when he should have
 DROPPED_BOMB_WHEN_SHOULDNT = "DROPPED_BOMB_WHEN_SHOULDNT"
@@ -287,7 +295,6 @@ DROPPED_BOMB_WHEN_SHOULD = "DROPPED_BOMB_WHEN_SHOULD"
 IN_BLAST_RADIUS = "IN_BLAST_RADIUS"
 IN_BLAST_RADIUS_AND_NOT_TRYING_TO_ESCAPE = "IN_BLAST_RADIUS_AND_NOT_TRYING_TO_ESCAPE"
 
-#check if agent avoids bombs
 ESCAPED_BOMB = "ESCAPED_BOMB"
 SURVIVED_BOMB = "SURVIVED_BOMB"
 GOING_TOWARDS_BOMB = "GOING_TOWARDS_BOMB"
@@ -303,20 +310,16 @@ BLAST_COUNT_RIGHT_DECREASED = "BLAST_COUNT_RIGHT_DECREASED"
 #check if agent waited in blast radius
 WAITED_IN_BLAST_RADIUS = "WAITED_IN_BLAST_RADIUS"
 
-#check if agent stayed in bomb radius
 WENT_INTO_BOMB_RADIUS_AND_DIED = "WENT_INTO_BOMB_RADIUS_AND_DIED"
 DROPPED_BOMB_AND_COLLECTED_COIN_MEANWHILE = "DROPPED_BOMB_AND_COLLECTED_COIN_MEANWHILE"
 
-#function to check for the custom events
 def check_custom_events(self, events: List[str],action, features_old, features_new):
-    
-    #update how many steps since last dropped a bomb
+    # Check if agent is closer to coin
     self.frames_after_bomb += 1
     action = ACTIONS[action]
     if action == "BOMB":
         self.frames_after_bomb = 0
 
-    #retrieve features from current and previous game step
     nearest_coin_distance_old, is_dead_end_old, bomb_threat_old, time_to_explode_old,\
         can_drop_bomb_old, is_next_to_opponent_old, is_on_bomb_old, should_drob_bomb_old,\
             escape_route_available_old, direction_to_target_old_UP, direction_to_target_old_DOWN,\
@@ -330,8 +333,22 @@ def check_custom_events(self, events: List[str],action, features_old, features_n
                 direction_to_target_new_LEFT, direction_to_target_new_RIGHT, is_in_loop_new, nearest_bomb_distance_new,\
                     blast_count_up_new, blast_count_down_new, blast_count_left_new,blast_count_right_new, \
                         danger_level_up_new, danger_level_down_new, danger_level_left_new, danger_level_right_new,*local_map_new = features_new
+                
+    # nearest_coin_distance_old, is_dead_end_old, bomb_threat_old, time_to_explode_old,\
+    #     can_drop_bomb_old, is_next_to_opponent_old, is_on_bomb_old, should_drob_bomb_old,\
+    #         escape_route_available_old, is_in_loop_old, nearest_bomb_distance_old,\
+    #                 blast_count_up_old, blast_count_down_old, blast_count_left_old,blast_count_right_old, \
+    #                     danger_level_up_old, danger_level_down_old, danger_level_left_old, danger_level_right_old, *local_map_old = features_old
     
-    #Check if closer to coin
+    # nearest_coin_distance_new, is_dead_end_new, bomb_threat_new, time_to_explode_new,\
+    #     can_drop_bomb_new, is_next_to_opponent_new, is_on_bomb_new, should_drob_bomb_new,\
+    #         escape_route_available_new, is_in_loop_new, nearest_bomb_distance_new,\
+    #                 blast_count_up_new, blast_count_down_new, blast_count_left_new,blast_count_right_new, \
+    #                     danger_level_up_new, danger_level_down_new, danger_level_left_new, danger_level_right_new,*local_map_new = features_new           
+    
+    
+    # Feature list: [nearest_coin_distance, is_dead_end, bomb_threat, time_to_explode, can_drop_bomb, 
+    # is_next_to_opponent, is_on_bomb, crates_nearby, escape_route_available, direction_to_target, is_in_loop, ignore_others_timer_normalized]
     if nearest_coin_distance_new < nearest_coin_distance_old:
         events.append(CLOSER_TO_COIN)
     else: 
@@ -340,20 +357,20 @@ def check_custom_events(self, events: List[str],action, features_old, features_n
     # Check if bomb is escapable
     if is_on_bomb_new and not is_on_bomb_old:
         events.append(ESCAPABLE_BOMB)
-
-    #for logging: count crates destroyed and if coin collected
+    #for logging count crates destroyed and if coin collected
     crates = events.count(e.CRATE_DESTROYED)
     self.log_crates += crates
+    kills = events.count(e.KILLED_OPPONENT)
+    self.log_kills += kills
     if e.COIN_COLLECTED in events:
         self.log_coins += 1
-
     # Check if crate destroyed and survived
     if not e.KILLED_SELF in events:
         for i in range(crates):
             events.append(CRATE_DESTROYED_AND_SURVIVED)
         
 
-    # Check if Agent took direction towards target: direction_to_target = [UP, DOWN, LEFT, RIGHT]
+    # # Check if Agent took direction towards target: direction_to_target = [UP, DOWN, LEFT, RIGHT]
     if (action == "UP" and direction_to_target_old_UP == 1) or (action == "DOWN" and direction_to_target_old_DOWN == 1)\
         or (action == "LEFT" and direction_to_target_old_LEFT == 1) or (action == "RIGHT" and direction_to_target_old_RIGHT == 1):
         TARGET_FLAG = True
@@ -390,6 +407,8 @@ def check_custom_events(self, events: List[str],action, features_old, features_n
     #     events.append(IS_IN_LOOP)
     # if not is_in_loop_new and is_in_loop_old:
     #     events.append(GOT_OUT_OF_LOOP)
+     
+     #TODO CHECK THIS
         
     # Check if agent dropped bomb when he should have
     if not should_drob_bomb_old and action=="BOMB":
@@ -403,12 +422,15 @@ def check_custom_events(self, events: List[str],action, features_old, features_n
     if should_drob_bomb_old and action=="BOMB":
         events.append(DROPPED_BOMB_WHEN_SHOULD)
         
-    # blast_count_old = [blast_count_up_old, blast_count_down_old, blast_count_left_old, blast_count_right_old]
-    # blast_count_new = [blast_count_up_new, blast_count_down_new, blast_count_left_new, blast_count_right_new]
+    blast_count_old = [blast_count_up_old, blast_count_down_old, blast_count_left_old, blast_count_right_old]
+    blast_count_new = [blast_count_up_new, blast_count_down_new, blast_count_left_new, blast_count_right_new]
     
-    # danger_level_old = [danger_level_up_old, danger_level_down_old, danger_level_left_old, danger_level_right_old]
-    # danger_level_new = [danger_level_up_new, danger_level_down_new, danger_level_left_new, danger_level_right_new]
+    danger_level_old = [danger_level_up_old, danger_level_down_old, danger_level_left_old, danger_level_right_old]
+    danger_level_new = [danger_level_up_new, danger_level_down_new, danger_level_left_new, danger_level_right_new]
     
+    
+    # TODO hier punishen wenn agent bombe placed aber sich nicht rechtzeitig bewegt, oben nochmal abchecekn
+    #---------------------------------------_!
     
         
     # Check if agent reduced blast count in certain direction
@@ -494,6 +516,7 @@ def reward_from_events(self, events: List[str]) -> int:
     e.SURVIVED_ROUND: 1.0,
     e.GOT_KILLED: 0.0},
     
+    #performs way worse than before
     'loot-crate': {
     e.COIN_COLLECTED: 15.0,
     e.KILLED_SELF: -20.0,
@@ -518,7 +541,7 @@ def reward_from_events(self, events: List[str]) -> int:
     TOOK_DIRECTION_TOWARDS_TARGET: 1.0,
     TOOK_DIRECTION_AWAY_FROM_TARGET: -1.5,
     # IS_IN_LOOP: -0.2,
-    # GOT_OUT_OF_LOOP: 0.2,
+    # GOT_OUT_OF_LOOP: 0.2,#not sure if this is working
     IN_BLAST_RADIUS:-0.5,
     BLAST_COUNT_UP_DECREASED: 0.3,
     BLAST_COUNT_DOWN_DECREASED: 0.3,
@@ -527,43 +550,46 @@ def reward_from_events(self, events: List[str]) -> int:
     WENT_INTO_BOMB_RADIUS_AND_DIED: -5.0,
     #DROPPED_BOMB_AND_COLLECTED_COIN_MEANWHILE: 2.5,
     IN_BLAST_RADIUS_AND_NOT_TRYING_TO_ESCAPE: -2.0,
-    WAITED_IN_BLAST_RADIUS: -1.0,
+    #WAITED_IN_BLAST_RADIUS: -1.0,
     NO_TARGET_DIRECTION: 0.0
     },
 
     'classic': {
-    e.COIN_COLLECTED: 10.0,
-    e.KILLED_OPPONENT: 30.0,
-    e.KILLED_SELF: -10.0,
+    e.COIN_COLLECTED: 15.0,
+    e.KILLED_SELF: -20.0,
+    e.KILLED_OPPONENT: 50.0,
     e.INVALID_ACTION: -0.5,
-    e.GOT_KILLED: -10.0,
     e.WAITED: -0.1,
     e.MOVED_LEFT: -0.1,
     e.MOVED_RIGHT: -0.1,
     e.MOVED_UP: -0.1,
     e.MOVED_DOWN: -0.1,
-    e.BOMB_DROPPED: 0.5,
-    e.BOMB_EXPLODED: 0.5,
+    e.BOMB_DROPPED: 0.0,
+    e.BOMB_EXPLODED: 0.0,
     e.CRATE_DESTROYED: 0.0,
     CRATE_DESTROYED_AND_SURVIVED: 4.0,
-    e.COIN_FOUND: 2.0,
+    e.COIN_FOUND: 0.0,
     e.SURVIVED_ROUND: 30.0,
     DROPPED_BOMB_WHEN_SHOULD: 0.5,
     DROPPED_BOMB_WHEN_SHOULDNT:-1.0,
-    DIDNT_DROP_BOMB_WHEN_SHOULD:-1.0,
-    ESCAPED_BOMB: 1.0,
-    GOING_TOWARDS_BOMB:-1.0,
-    GOING_AWAY_FROM_BOMB: 1.0,
-    TOOK_DIRECTION_TOWARDS_TARGET: 2.0,
-    TOOK_DIRECTION_AWAY_FROM_TARGET: -2.0,
-    IN_BLAST_RADIUS:-1.0,
-    BLAST_COUNT_UP_DECREASED: 1.0,
-    BLAST_COUNT_DOWN_DECREASED: 1.0,
-    BLAST_COUNT_LEFT_DECREASED: 1.0,
-    BLAST_COUNT_RIGHT_DECREASED: 1.0,
+    DIDNT_DROP_BOMB_WHEN_SHOULD:-0.5,
+    ESCAPED_BOMB: 0.5,
+    GOING_TOWARDS_BOMB:-0.2,
+    GOING_AWAY_FROM_BOMB: 0.2,
+    TOOK_DIRECTION_TOWARDS_TARGET: 1.0,
+    TOOK_DIRECTION_AWAY_FROM_TARGET: -1.5,
+    # IS_IN_LOOP: -0.2,
+    # GOT_OUT_OF_LOOP: 0.2,#not sure if this is working
+    IN_BLAST_RADIUS:-0.5,
+    BLAST_COUNT_UP_DECREASED: 0.3,
+    BLAST_COUNT_DOWN_DECREASED: 0.3,
+    BLAST_COUNT_LEFT_DECREASED: 0.3,
+    BLAST_COUNT_RIGHT_DECREASED: 0.3,
     WENT_INTO_BOMB_RADIUS_AND_DIED: -5.0,
-    IN_BLAST_RADIUS_AND_NOT_TRYING_TO_ESCAPE: -3.0,
-    WAITED_IN_BLAST_RADIUS: -2.0,
+    #DROPPED_BOMB_AND_COLLECTED_COIN_MEANWHILE: 2.5,
+    IN_BLAST_RADIUS_AND_NOT_TRYING_TO_ESCAPE: -2.0,
+    #WAITED_IN_BLAST_RADIUS: -1.0,
+    NO_TARGET_DIRECTION: 0.0
     },
 
 }

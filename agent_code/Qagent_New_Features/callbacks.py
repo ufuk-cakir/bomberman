@@ -24,35 +24,96 @@ import wandb
 
 VIEW_SIZE: int = 7
 
-# For Training:
 # Ask from terminal wheter to continue training or not
-# CONTINUE_TRAINING = input("Continue training? (y/n)")
-# if CONTINUE_TRAINING == "y":
-#     CONTINUE_TRAINING = True
+CONTINUE_TRAINING = input("Continue training? (y/n)")
+if CONTINUE_TRAINING == "y":
+    CONTINUE_TRAINING = True
 
-# else:
-#     CONTINUE_TRAINING = False
+else:
+    CONTINUE_TRAINING = False
         
-# LOG_WANDB = input("Log to wandb? (y/n)")
-# if LOG_WANDB == "y":
-#     LOG_WANDB = True
-# else:
-#     LOG_WANDB = False
+LOG_WANDB = input("Log to wandb? (y/n)")
+if LOG_WANDB == "y":
+    LOG_WANDB = True
+else:
+    LOG_WANDB = False
 
-# EPS_GREEDY = input("Epsilon Greedy? (y/n)")
-# if EPS_GREEDY == "y":
-#     EPS_GREEDY = True
-# else:
-#     EPS_GREEDY = False
-CONTINUE_TRAINING = True
-LOG_WANDB = False
-EPS_GREEDY = False
+EPS_GREEDY = input("Epsilon Greedy? (y/n)")
+if EPS_GREEDY == "y":
+    EPS_GREEDY = True
+else:
+    EPS_GREEDY = False
 
 def get_object_map(object_xy_list):
     object_map = np.zeros((settings.COLS, settings.ROWS))
     for (x, y) in object_xy_list:
         object_map[x, y] = 1
     return object_map
+
+
+def view_port_state(game_state: dict) -> np.ndarray:
+    """
+    Features per field:
+
+     - 0: Free
+     - 1: Breakable
+     - 2: Obstructed
+     - 3: Contains player
+     - 4: Contains coin
+     - 5: Danger level
+     - 6: Contains explosion
+     !- 7: Contains opponent
+    """
+    num_features_per_tile = 7
+
+    feature_shape: tuple = (VIEW_SIZE * VIEW_SIZE * num_features_per_tile,)
+    features = np.full(feature_shape, np.nan)
+    _, _, _, (player_x, player_y) = game_state["self"]
+    coins = game_state["coins"]
+    opponent_coords = [(x, y) for _, _, _, (x, y) in game_state["others"]]
+
+    coin_map = get_object_map(coins)
+    opponent_map = get_object_map(opponent_coords)
+
+    origin_x = player_x
+    origin_y = player_y
+    if (origin_x - VIEW_SIZE // 2) < 0:
+        origin_x = VIEW_SIZE // 2
+    if (origin_y - VIEW_SIZE // 2) < 0:
+        origin_y = VIEW_SIZE // 2
+
+    if (origin_x + VIEW_SIZE // 2) >= settings.COLS:
+        origin_x = settings.COLS - VIEW_SIZE // 2 - 1
+    if (origin_y + VIEW_SIZE // 2) >= settings.ROWS:
+        origin_y = settings.ROWS - VIEW_SIZE // 2 - 1
+
+    x_range = range(origin_x - VIEW_SIZE // 2, origin_x + VIEW_SIZE // 2 + 1)
+    y_range = range(origin_y - VIEW_SIZE // 2, origin_y + VIEW_SIZE // 2 + 1)
+    for i, x in enumerate(x_range):
+        for j, y in enumerate(y_range):
+            field_index = (
+                np.ravel_multi_index((i, j), (VIEW_SIZE, VIEW_SIZE))
+                * num_features_per_tile
+            )
+            field = game_state["field"][x, y]
+            features[field_index + 0] = int(field == 0) - 0.5
+            features[field_index + 1] = int(field == 1) - 0.5
+            features[field_index + 2] = int(np.abs(field) == 1) - 0.5
+            features[field_index + 3] = int(player_x == x and player_y == y) - 0.5
+            features[field_index + 4] = coin_map[x, y] - 0.5
+            features[field_index + 5] = 0
+            for (bomb_x, bomb_y), timer in game_state["bombs"]:
+                if bomb_x == x and bomb_y == y:
+                    features[field_index + 5] = (
+                        settings.BOMB_TIMER - timer
+                    ) / settings.BOMB_TIMER
+                    break
+            features[field_index + 6] = int(opponent_map[x, y]) - 0.5
+    assert np.all(~np.isnan(features))
+    return features
+
+#-------------------------
+
 
 
 eps_threshold = 0
@@ -77,13 +138,10 @@ def setup(self):
         wandb.init(project="bomberman-qagent", name="training-reduced-features")
         wandb.config.update(HYPER._asdict())
     
-
     self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     self.steps_done = 0
     self.bomb_history = deque([], 5)
     self.coordinate_history = deque([], 20)
-
-    #load current model or set up from scratch
     if self.train or not os.path.isfile("policy_net.pt"):
         if CONTINUE_TRAINING:
             self.logger.info("Loading model from saved state.")
@@ -146,7 +204,7 @@ def act(self, game_state: dict) -> str:
             #self.logger.info(f'Took Action {ACTIONS[action]}')
             return ACTIONS[action]
 
-# From Rule Based Agent: Get closest target via free tiles
+# Copied from rule_based agent TODO
 import numpy as np
 from random import shuffle
 def look_for_targets(free_space, start, targets,logger=None):
@@ -201,7 +259,6 @@ def look_for_targets(free_space, start, targets,logger=None):
         if parent_dict[current] == start: return current
         current = parent_dict[current]
 
-#check for bomb radius in all directions
 def get_danger_level(self,agent_position, explosion_map, arena, debug = True):
     x, y = agent_position
     danger_level = [0, 0, 0, 0]  # [UP, DOWN, LEFT, RIGHT]
@@ -217,7 +274,6 @@ def get_danger_level(self,agent_position, explosion_map, arena, debug = True):
             self.logger.debug(f'Danger level: {danger_level}')
     
     return danger_level
-
 
 def state_to_features(self,game_state: dict) -> np.array:
     """
@@ -321,9 +377,16 @@ def state_to_features(self,game_state: dict) -> np.array:
     escape_route_available = 1 if free_spaces > 1 else 0 #TODO implement this correctly
 
     # 10. Direction to Nearest Target (simplified for brevity)
+
+
     
+
     # Assuming the function look_for_targets returns a direction as (dx, dy)
     targets = coins + dead_ends + crates + others # TODO add others? ADD flag if others are importatnt
+
+
+    # targets_in_blast_range = [targets[i] for i in range(len(targets)) if targets[i] in blast_coords]
+    # self.logger.debug(f'Targets in blast range: { targets_in_blast_range }')
 
     # Exclude targets that are occupied by a bomb
     targets = [targets[i] for i in range(len(targets)) if targets[i] not in bomb_xys]
@@ -335,9 +398,10 @@ def state_to_features(self,game_state: dict) -> np.array:
     targets = [targets[i] for i in range(len(targets)) if targets[i] not in blast_coords]
     
     #filter out blast and explosion coordinates
+   
     arena_and_explosions = np.abs(arena) + np.abs(explosion_map)
     
-    #if player is not on bomb, filter suiting coordinates to escape bomb, these should remain to be seen as free spaces
+    #if player is not on bomb, filter suiting coordinates to escape bomb
     escape_coords=[]
     if is_on_bomb == 0:
         if bomb_threat == 1:
@@ -358,7 +422,9 @@ def state_to_features(self,game_state: dict) -> np.array:
         for (bx,by) in blast_coords:
             if not (bx,by) in escape_coords:
                 arena_and_explosions[bx,by] = 1
-    
+    #print(arena_and_explosions, is_on_bomb)
+
+
     target_direction = look_for_targets(arena_and_explosions == 0, (x, y), targets)
 
     direction_to_target = [0, 0, 0, 0]  # [UP, DOWN, LEFT, RIGHT]
@@ -371,7 +437,6 @@ def state_to_features(self,game_state: dict) -> np.array:
     
     if (x, y) in dead_ends:
         should_drop_bomb = 1
-
     # Add proposal to drop a bomb if touching an opponent
     if len(others) > 0:
         if (min(abs(xy[0] - x) + abs(xy[1] - y) for xy in others)) <= 1:
@@ -428,6 +493,21 @@ def state_to_features(self,game_state: dict) -> np.array:
                 # If the tile is a wall, stop checking further in this direction
                 elif arena[tile_x, tile_y] == -1:
                     break
+    
+    # #avoid that going to target leads to walking into greater danger
+    # if blast_in_direction[0] > blast_in_direction[1] or danger_level[0]>0:
+    #     direction_to_target[0] = 0
+    # if blast_in_direction[1] > blast_in_direction[0] or danger_level[1]>0:
+    #     direction_to_target[1] = 0
+    # if blast_in_direction[2] > blast_in_direction[3] or danger_level[2]>0:
+    #     direction_to_target[1] = 0
+    # if blast_in_direction[3] > blast_in_direction[2] or danger_level[3]>0:
+    #     direction_to_target[0] = 0
+    # self.logger.debug(f'danger level {danger_level}')
+    # self.logger.debug(f'blast in direction {blast_in_direction}')
+    # self.logger.debug(f'direction to target {direction_to_target}')
+        
+    #exclude direction to target if it brings you into blast radius or explosion radius
 
     # Distance to closest bomb
     distance_to_bombs = [np.abs(x-bx) + np.abs(y-by) for (bx, by) in bomb_xys]
@@ -444,5 +524,11 @@ def state_to_features(self,game_state: dict) -> np.array:
         can_drop_bomb, is_next_to_opponent, is_on_bomb, should_drop_bomb,
         escape_route_available
     ] + direction_to_target + [is_in_loop, nearest_bomb_distance] + blast_in_direction + danger_level #ignore_others_timer_normalized]
+
+    # features = [
+    #     nearest_coin_distance, is_dead_end, bomb_threat, time_to_explode,
+    #     can_drop_bomb, is_next_to_opponent, is_on_bomb, should_drop_bomb,
+    #     escape_route_available
+    # ] + [is_in_loop, nearest_bomb_distance] + blast_in_direction + danger_level #ignore_others_timer_normalized]
 
     return np.array(features)
