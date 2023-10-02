@@ -2,27 +2,26 @@
 
 # The `NEAT` section specifies parameters particular to the NEAT algorithm
 # or the experiment itself.  This is the only required section.
-# fitness thresholds to be set are for empty: 10000, coin-heaven: 15000, loot-crate: , classic: 
 [NEAT]
-fitness_criterion   = min
-fitness_threshold   = 25
+fitness_criterion   = mean
+fitness_threshold   = 60.0
 pop_size            = 200
 reset_on_extinction = 1
 
 [DefaultGenome]
-num_inputs              = 48
+num_inputs              = 289
 num_hidden              = 0
 num_outputs             = 6
 initial_connection      = partial_direct 0.5
 feed_forward            = False
 compatibility_disjoint_coefficient    = 1.0
 compatibility_weight_coefficient      = 0.6
-conn_add_prob           = 0.2
-conn_delete_prob        = 0.2
-node_add_prob           = 0.2
-node_delete_prob        = 0.2
-activation_default      = relu
-activation_options      = relu
+conn_add_prob           = 0.35
+conn_delete_prob        = 0.35
+node_add_prob           = 0.35
+node_delete_prob        = 0.35
+activation_default      = sigmoid
+activation_options      = sigmoid
 activation_mutate_rate  = 0.0
 aggregation_default     = sum
 aggregation_options     = sum
@@ -48,7 +47,7 @@ weight_init_mean        = 0.0
 weight_init_stdev       = 1.0
 weight_mutate_rate      = 0.8
 weight_replace_rate     = 0.1
-weight_mutate_power     = 0.8
+weight_mutate_power     = 0.5
 enabled_default         = True
 enabled_mutate_rate     = 0.01
 
@@ -57,8 +56,8 @@ compatibility_threshold = 3.0
 
 [DefaultStagnation]
 species_fitness_func = max
-max_stagnation  = 70
+max_stagnation  = 50
 
 [DefaultReproduction]
-elitism            = 4
+elitism            = 2
 survival_threshold = 0.2

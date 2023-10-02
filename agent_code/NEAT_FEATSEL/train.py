@@ -4,18 +4,18 @@ import neat
 import os
 import copy
 import sys
+import visualize
 from collections import Counter
 import json
 from Training_Game import Game, Agents, Events as e
 
-NUM_GENERATIONS = 200
+NUM_GENERATIONS = 5000
 
-GAME_REWARDS = {'empty' : {e.COIN_COLLECTED: 0.0, e.KILLED_OPPONENT: 0.0, e.KILLED_SELF: 0.0, e.INVALID_ACTION: -50.0, e.WAITED: 0.0,
-                                   e.MOVED_LEFT: 20.0, e.MOVED_RIGHT: 20.0, e.MOVED_UP: 20.0, e.MOVED_DOWN: 20.0, e.BOMB_DROPPED: 0.0, 
-                                   e.BOMB_EXPLODED: 0.0, e.CRATE_DESTROYED: 0.0, e.COIN_FOUND: 0.0, e.SURVIVED_ROUND: 0.0, e.GOT_KILLED: 0.0},
-                'coin-heaven' : {e.COIN_COLLECTED: 1.0, e.KILLED_OPPONENT: 0.0, e.KILLED_SELF: -5.0, e.INVALID_ACTION: -2.0, e.WAITED: -0.5,
-                                   e.MOVED_LEFT: -0.1, e.MOVED_RIGHT: -0.1, e.MOVED_UP: -0.1, e.MOVED_DOWN: -0.1, e.BOMB_DROPPED: -0.5, 
-                                   e.BOMB_EXPLODED: 0.0, e.CRATE_DESTROYED: 0.0, e.COIN_FOUND: 0.0, e.SURVIVED_ROUND: 0.0, e.GOT_KILLED: 0.0},
+GAME_REWARDS = {'coin-heaven' : {e.COIN_COLLECTED: 6.0, e.KILLED_OPPONENT: 0.0, e.KILLED_SELF: -2.0, e.INVALID_ACTION: -5.0, e.WAITED: -0.1,
+                                   e.MOVED_LEFT: -0.1, e.MOVED_RIGHT: -0.1, e.MOVED_UP: -0.1, e.MOVED_DOWN: -0.1, e.BOMB_DROPPED: -0.1, 
+                                   e.BOMB_EXPLODED: 0.0, e.CRATE_DESTROYED: 0.0, e.COIN_FOUND: 0.0, e.SURVIVED_ROUND: 0.0, e.GOT_KILLED: 0.0,
+                                   e.CLOSER_TO_COIN: 3.0, e.FURTHER_FROM_COIN: -1.0, e.IS_IN_LOOP: -1.0, e.IN_BLAST_RADIUS: -0.5, e.GOING_AWAY_FROM_BOMB: 0.5,
+                                   e.GOING_TOWARDS_BOMB: -0.5, e.ESCAPED_BOMB: 2.0},
                 'loot-crate' : {e.COIN_COLLECTED: 2.0, e.KILLED_OPPONENT: 6.0, e.KILLED_SELF: -2.0, e.INVALID_ACTION: -0.5, e.WAITED: -0.1,
                                    e.MOVED_LEFT: 0.3, e.MOVED_RIGHT: 0.3, e.MOVED_UP: 0.3, e.MOVED_DOWN: 0.3, e.BOMB_DROPPED: 0.5, 
                                    e.BOMB_EXPLODED: 0.15, e.CRATE_DESTROYED: 0.5, e.COIN_FOUND: 1.0, e.SURVIVED_ROUND: 5.0, e.GOT_KILLED: -2.0},
@@ -24,6 +24,7 @@ GAME_REWARDS = {'empty' : {e.COIN_COLLECTED: 0.0, e.KILLED_OPPONENT: 0.0, e.KILL
                                    e.BOMB_EXPLODED: 0.15, e.CRATE_DESTROYED: 0.5, e.COIN_FOUND: 1.0, e.SURVIVED_ROUND: 5.0, e.GOT_KILLED: -2.0}}
 
 generation_events = []
+
 
 def calc_genome_fitness(agent, scenario):
     ## function to calculate a genomes fitness based on the scenario and the agent
@@ -37,9 +38,10 @@ def eval_genomes(genomes, config):
     ## for each training run, create one game with agents, perform fitness evaluation, record events for generation
     agents = []
     scenario = 'coin-heaven'
-    rounds = 10
+    rounds = 5
     game = Game.Game(agents, scenario, rounds)
     population_events = []
+
 
     for i, (genome_id1, genome1) in enumerate(genomes):
         # train with created world and agents
@@ -48,9 +50,8 @@ def eval_genomes(genomes, config):
         g.play(agent)
         genome1.fitness = calc_genome_fitness(agent, scenario) 
         population_events = population_events + agent.events
-    print(dict(Counter(population_events)))
+    print({k: v for k, v in sorted(dict(Counter(population_events)).items(), key=lambda item: item[1], reverse=True)})
     generation_events.append(population_events)
-
 
 
 def train_neat(config):
@@ -61,9 +62,11 @@ def train_neat(config):
     p.add_reporter(neat.StdOutReporter(True))
     stats = neat.StatisticsReporter()
     p.add_reporter(stats)
-    #p.add_reporter(neat.Checkpointer(10))
+    p.add_reporter(neat.Checkpointer(1000))
 
-    winner = p.run(eval_genomes, 200)
+    
+
+    winner = p.run(eval_genomes, NUM_GENERATIONS)
     with open("winner.nt", "wb") as f:
         pickle.dump(winner,f)
 
@@ -76,8 +79,9 @@ def train_neat(config):
 
     with open("generation_events.json", "w") as outfile:
         json.dump(generation_event_dict, outfile)
+           
 
-   
+
 
 def setup_training():
     ## once called for setting up training, return local config file 

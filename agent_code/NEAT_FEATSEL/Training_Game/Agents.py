@@ -33,6 +33,9 @@ class Peacful_Agent:
     def act(self, game_state):
         return np.random.choice(['RIGHT', 'LEFT', 'UP', 'DOWN'])
     
+    def set_custom_events(self):
+        return
+    
     def add_event(self, event):
         self.events.append(event)
 
@@ -64,6 +67,9 @@ class Coin_Collector_Agent:
 
     def add_event(self, event):
         self.events.append(event)
+
+    def set_custom_events(self):
+        return
 
     
     def update_score(self, item):
@@ -252,6 +258,9 @@ class Rule_Based_Agent:
     
     def add_event(self, event):
         self.events.append(event)
+
+    def set_custom_events(self):
+        return
 
 
     def look_for_targets(self,free_space, start, targets):
@@ -451,6 +460,8 @@ class Neat_Agent:
         self.dead: bool = False
         self.train = True
         self.round = 0
+        self.coordinate_history = deque([], 20)
+        self.prev_game_state = 0
 
 
     def add_event(self, event):
@@ -458,56 +469,268 @@ class Neat_Agent:
 
     def get_state(self):
         return Neat_Agent, self.round, self.score, self.bombs_left, (self.x, self.y), self.dead
-    
 
-    def state_to_feature(self, game_state:dict):
+    def set_custom_events(self, coins, bombs, explosions):
+        if self.prev_game_state != 0:
+            prev_position = self.prev_game_state[4]
+            current_position = (self.x, self.y)
+
+            prev_coins_distance = [abs(coin.x - prev_position[0]) + abs(coin.y - prev_position[1]) for coin in coins]
+            current_coins_distance = [abs(coin.x - current_position[0]) + abs(coin.y - current_position[1]) for coin in coins]
+            if min(current_coins_distance) < min(prev_coins_distance):
+                self.events.append(CLOSER_TO_COIN)
+            if min(current_coins_distance) > min(prev_coins_distance):
+                self.events.append(FURTHER_FROM_COIN)
+
+            is_in_loop = 1 if self.coordinate_history.count((current_position[0], current_position[1])) > 3 else 0
+            if is_in_loop:
+                self.events.append(IS_IN_LOOP)
+
+            prev_bombs_distance = [abs(bomb.x - prev_position[0]) + abs(bomb.y - prev_position[1]) for bomb in bombs]
+            current_bombs_distance = [abs(bomb.x - current_position[0]) + abs(bomb.y - current_position[1]) for bomb in bombs]
+            
+            explosion_coords = []
+            for explosion in explosions:
+                explosion_coords += explosion.blast_coords
+            
+            if current_position in explosions:
+                self.events.append(IN_BLAST_RADIUS)
+            if prev_bombs_distance != [] and current_bombs_distance != []:
+                if min(prev_bombs_distance) > min(current_bombs_distance):
+                    self.events.append(GOING_AWAY_FROM_BOMB)
+                if min(prev_bombs_distance) < min(current_bombs_distance):
+                    self.events.append(GOING_TOWARDS_BOMB)
+
+                if prev_position in explosions and current_position not in explosions:
+                    self.events.append(ESCAPED_BOMB)
+
+        return
+
+
+    def state_to_features(self,game_state: dict) -> np.array:
         """
-        Converts game state with varying size to features of fixed size 289"""
-        feature_map = np.zeros((17,17))
+        *This is not a required function, but an idea to structure your code.*
 
-        for x in range(17):
-            for y  in range(17):
-                if game_state['field'][x,y] == -1:
-                    feature_map[x,y] = -1
-                elif game_state['field'][x,y] == 0:
-                    feature_map[x,y] = 0
-                elif game_state['field'][x,y] == 1:
-                    feature_map[x,y] = 1
+        Converts the game state to the input of your model, i.e.
+        a feature vector.
 
-        for coin in game_state['coins']:
-            feature_map[coin[0], coin[1]] = 4
+        You can find out about the state of the game environment via game_state,
+        which is a dictionary. Consult 'get_state_for_agent' in environment.py to see
+        what it contains.
 
+        :param game_state:  A dictionary describing the current game board.
+        :return: np.array
+        """
+        # This is the dict before the game begins and after it end
+        # Extracting basic information
+        arena = game_state['field']
+        agent_type, round,  score, bombs_left, (x, y), dead = game_state['self']
+        bombs = game_state['bombs']
+        bomb_xys = [xy for (xy, t) in bombs]
+        others = [xy for (n, s, b, xy) in game_state['others']]
+        coins = game_state['coins']
+        explosion_map = game_state['explosion_map'] 
         
-        for agent in game_state['others']:
-            if agent[2]:
-                feature_map[agent[4]] = 2
-            else:
-                feature_map[agent[4]] = 3
-        
-        for bomb in game_state['bombs']:
-            feature_map[bomb[0]] = 5 + bomb[1]
-
-        for x in range(17):
-            for y in range(17):
-                if game_state['explosion_map'][x,y] > 0:
-                    feature_map[x,y] = 10 + game_state['explosion_map'][x,y]
-
-        self_state = game_state['self']
-        if self_state[3]:
-            feature_map[self_state[4]] = 100
-        else:
-            feature_map[self_state[4]] = 101
-        return feature_map.flatten()
+        explosion_coords = [(x,y) for x in range(arena.shape[0]) for y in range(arena.shape[1]) if explosion_map[x,y] > 0]
     
+        #Distance to Nearest Coin
+        distances_to_coins = [np.abs(x-cx) + np.abs(y-cy) for (cx, cy) in coins]
+        nearest_coin_distance = min(distances_to_coins) if coins else -1
+
+
+        cols = range(1, arena.shape[0] - 1)
+        rows = range(1, arena.shape[0] - 1)
+        crates = [(x, y) for x in cols for y in rows if (arena[x, y] == 1)]
+        
+        # Check blast range of each bomb
+        blast_coords = []
+        blast_coords_timer = []
+        
+        for (bx, by), t in bombs:
+            # Start with the bomb position itself
+            blast_coords.append((bx, by))
+            blast_coords_timer.append(t)
+            # For each direction, check for crates
+            for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]: # TODO maybe add diagonal directions
+                for i in range(1, 4):
+                    # Stop when hitting a wall
+                    if arena[bx + i*dx, by + i*dy] == -1:
+                        break
+                    # Add free spaces
+                    if arena[bx + i*dx, by + i*dy] == 0:
+                        blast_coords.append((bx + i*dx, by + i*dy))
+                        blast_coords_timer.append(t)
+                    # Stop when hitting a crate
+                    if arena[bx + i*dx, by + i*dy] == 1:
+                        blast_coords.append((bx + i*dx, by + i*dy))
+                        blast_coords_timer.append(t)
+                        break
+        
+
+                    
+        # Check if agent is in bomb blast range
+        bomb_threat = 1 if (x, y) in blast_coords else 0
+        # additionaly check if agent is in explosion map
+        if explosion_map[x, y] > 0:
+            bomb_threat = 1
+
+
+        # Can Drop Bomb
+        can_drop_bomb = 1 if bombs_left > 0 and (x, y) not in bomb_xys else 0
+
+        # Is Next to Opponent
+        is_next_to_opponent = 1 if any(abs(ox-x) + abs(oy-y) == 1 for (ox, oy) in others) else 0
+
+        # Is on Bomb
+        is_on_bomb = 1 if (x, y) in bomb_xys else 0
+
+        # Is in a Loop 
+        is_in_loop = 1 if self.coordinate_history.count((x, y)) > 3 else 0
+        self.coordinate_history.append((x, y))
+
+        
+        blast_in_direction = [0, 0, 0, 0] # [UP, DOWN, LEFT, RIGHT]    
+        danger_level = [0, 0, 0, 0]  # [UP, DOWN, LEFT, RIGHT]
+
+        if bomb_threat:
+            # Count number of tiles occupied by blast in each direction
+            directions = [(0, -1), (0, 1), (-1, 0), (1, 0)]  # [UP, DOWN, LEFT, RIGHT]
+        
+            # Iterate through each direction
+            for i, (dx, dy) in enumerate(directions):
+                for j in range(1, 4):  # Check up to 3 tiles in each direction
+                    # Calculate the coordinates of the tile in the current direction
+                    tile_x, tile_y = x + j*dx, y + j*dy
+                    # Check if the tile is in the blast range
+                    if (tile_x, tile_y) in blast_coords:
+                        blast_in_direction[i] += 1
+                    if (tile_x,tile_y) in explosion_coords:
+                    
+                        danger_level[i] += 1
+                    # If the tile is a wall, stop checking further in this direction
+                    elif arena[tile_x, tile_y] == -1:
+                        break
+                    
+        
+        if len(explosion_coords) > 0:
+            # Count number of tiles occupied by blast in each direction
+            directions = [(0, -1), (0, 1), (-1, 0), (1, 0)]  # [UP, DOWN, LEFT, RIGHT]
+        
+            # Iterate through each direction
+            for i, (dx, dy) in enumerate(directions):
+                for j in range(1, 4):  # Check up to 3 tiles in each direction
+                    # Calculate the coordinates of the tile in the current direction
+                    tile_x, tile_y = x + j*dx, y + j*dy
+                
+                    if (tile_x,tile_y) in explosion_coords:
+                        
+                        danger_level[i] += 1
+                    # If the tile is a wall, stop checking further in this direction
+                    elif arena[tile_x, tile_y] == -1:
+                        break
+                
+
+            
+        
+
+        # Distance to closest bomb
+        distance_to_bombs = [np.abs(x-bx) + np.abs(y-by) for (bx, by) in bomb_xys]
+        nearest_bomb_distance = min(distance_to_bombs) if bomb_xys else -1
+        
+        # time to explode
+        time_to_explode = 5  # Assuming max time is 4 for a bomb to explode TODO is this correct?
+        for (bx, by), t in bombs:
+            if abs(bx - x) < 4 or abs(by - y) < 4:
+                time_to_explode = min(time_to_explode, t)
+
+        # Get angle to nearest coin
+        if len(coins) > 0:
+            nearest_coin = coins[np.argmin(distances_to_coins)]
+            angle_to_nearest_coin = np.arctan2(nearest_coin[1] - y, nearest_coin[0] - x)
+        
+        else:
+            angle_to_nearest_coin = -1
+        
+        
+        # Add direction to nearest coin: 
+        # Encode if the coin is above or below the agent in first bit, and if it is left or right in second bit
+        direction_to_coin = [-1, -1]
+        if len(coins) > 0:
+            nearest_coin = coins[np.argmin(distances_to_coins)]
+            if nearest_coin[0] - x > 0:
+                direction_to_coin[1] = 1 # Coin is to the right
+            else:
+                direction_to_coin[1] = 0 # Coin is to the left
+                
+            if nearest_coin[1] - y > 0:
+                direction_to_coin[0] = 1 # Coin is below
+            else:
+                direction_to_coin[0] = 0 # Coin is above
+                
+        
+        # local map 
+        local = np.zeros((5,5)) -2.5
+        
+        walls = [(xs,ys) for xs in range(arena.shape[0]) for ys in range(arena.shape[1]) if arena[xs,ys] == -1]
+        
+        # get the coordinates of the local map view
+        local_coords = [(xs,ys) for xs in range(x-2,x+3) for ys in range(y-2,y+3)]
+
+        # fill in arena values
+        for (xs,ys) in local_coords:
+            if (xs,ys) in walls:
+                local[xs-x+2,ys-y+2] = -2.5
+            elif (xs,ys) in coins:
+                local[xs-x+2,ys-y+2] = 1.5
+            elif (xs,ys) in crates:
+                local[xs-x+2,ys-y+2] = 1
+            elif (xs,ys) in others:
+                local[xs-x+2,ys-y+2] = -4.5
+            elif (xs,ys) in explosion_coords:
+                local[xs-x+2,ys-y+2] = -explosion_map[xs,ys]-0.125
+            elif (xs,ys) in blast_coords:
+                # Fill in with the timer of bomb explosion
+                index = blast_coords.index((xs,ys))
+                local[xs-x+2,ys-y+2] = -blast_coords_timer[index]-0.125
+            elif (xs,ys) == (x,y):
+                local[xs-x+2,ys-y+2] = 5
+            elif xs < 0 or xs > 16 or ys < 0 or ys > 16:
+                local[xs-x+2,ys-y+2] = -2.5
+            
+            else:
+                local[xs-x+2,ys-y+2] = 0
+        
+        
+        # Start with agent position
+        local[2,2] = 5 # agent position
+        local = local.flatten().tolist()
+        
+
+        valid_directions = [0, 0, 0, 0]  # [UP, DOWN, LEFT, RIGHT]
+        directions = [(0, -1), (0, 1), (-1, 0), (1, 0)]  # [UP, DOWN, LEFT, RIGHT]
+        for i, (dx, dy) in enumerate(directions):
+            tile_x, tile_y = x + dx, y + dy
+            # check if the tile is free
+            if arena[tile_x, tile_y] ==0:
+                valid_directions[i] = 1
+        
+        
+        features = valid_directions+[
+            nearest_coin_distance, angle_to_nearest_coin] + direction_to_coin + [ bomb_threat, time_to_explode,
+            can_drop_bomb, is_next_to_opponent, is_on_bomb, 
+        ] + [is_in_loop, nearest_bomb_distance] + blast_in_direction + danger_level + local #ignore_others_timer_normalized]
+        return(np.array(features))
+        
     def update_score(self, item):
         if item == REWARD_COIN:
-            self.score += 1
+            self.score = self.score + 1
         elif item == REWARD_KILL: 
-            self.score += 5
+            self.score = self.score + 5
     
     def act(self, game_state):
-        features = self.state_to_feature(game_state)
+        features = self.state_to_features(game_state)
         output = self.net.activate(features)
+        self.prev_game_state = self.get_state()
         return ACTIONS[output.index(max(output))]
         
 

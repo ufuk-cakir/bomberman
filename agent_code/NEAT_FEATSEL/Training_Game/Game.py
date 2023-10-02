@@ -17,6 +17,7 @@ class Game:
     explosions: List[Explosion] = []
     rounds: int
     round_id: int
+
    
     def __init__(self, agents, scenario = 'classic', rounds = 1):
         self.agents = agents
@@ -69,7 +70,8 @@ class Game:
         active_agents = []
         for agent, start_position in zip(self.agents, self.rng.permutation(start_positions)):
             active_agents.append(agent)
-            agent.x, agent.y = start_position
+            agent.x, agent.y = (1,1)#start_position
+
 
         self.arena = arena
         self.coins = coins
@@ -258,14 +260,10 @@ class Game:
             a.bombs_left = True
         self.initialize_new_game()
 
-    def set_custom_events(self):
-        for agent in self.active_agents:
-            pass
-        return
         
 
     def play(self, neat_agent):
-        neat_agent.x, neat_agent.y = self.get_start_position()
+        neat_agent.x, neat_agent.y = (1,1)#self.get_start_position()
         self.agents.append(neat_agent)
         self.active_agents.append(neat_agent)
 
@@ -277,8 +275,10 @@ class Game:
                 self.evaluate_explosions()
                 self.update_bombs()
                 self.time_to_stop()
+                for agent in self.active_agents:
+                    agent.set_custom_events(self.coins, self.bombs, self.explosions)
                 self.step += 1
-         
+      
             # Clean up survivors and in
             for a in self.active_agents:
                 a.add_event(SURVIVED_ROUND)
